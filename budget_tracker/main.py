@@ -8,7 +8,7 @@ from budget_tracker.config import APP_DISPLAY_NAME, ORG_NAME
 from budget_tracker.core.db import init_db
 from budget_tracker.services.settings_service import SettingsService
 from budget_tracker.ui.main_window import MainWindow
-from budget_tracker.ui.theme import apply_theme
+from budget_tracker.ui.styles import apply_theme
 
 
 def main() -> int:

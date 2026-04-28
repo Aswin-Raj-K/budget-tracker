@@ -1,0 +1,33 @@
+{
+  "id": "light",
+  "name": "Paper Light",
+  "description": "Soft paper-feel light theme with the same violet accent.",
+  "colors": {
+    "bg":              "#F8F9FB",
+    "surface":         "#FFFFFF",
+    "surface_alt":     "#F1F2F5",
+    "surface_hover":   "#ECEDF1",
+    "surface_pressed": "#DEDFE5",
+
+    "border":          "#E5E7EB",
+    "border_strong":   "#CBD0DA",
+
+    "sidebar_bg":      "#FFFFFF",
+
+    "text":            "#0F172A",
+    "text_muted":      "#4B5563",
+    "text_subtle":     "#6B7280",
+
+    "accent":          "#6D5BFA",
+    "accent_hover":    "#5B49E8",
+    "accent_pressed":  "#4838C9",
+    "accent_text":     "#FFFFFF",
+    "accent_soft":     "#EEEBFE",
+
+    "success":         "#059669",
+    "warning":         "#D97706",
+    "danger":          "#DC2626",
+
+    "chip_bg":         "#F1F2F5"
+  }
+}

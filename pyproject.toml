@@ -28,7 +28,9 @@ include = ["budget_tracker*"]
 [tool.setuptools.package-data]
 budget_tracker = [
     "core/migrations/*.sql",
-    "ui/theme/*.qss",
+    "ui/styles/*.qss",
+    "ui/styles/*.template",
+    "ui/styles/themes/*.json",
     "ui/icons/*.svg",
 ]
 

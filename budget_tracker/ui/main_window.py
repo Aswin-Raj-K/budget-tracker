@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
-    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -21,7 +20,7 @@ from PySide6.QtWidgets import (
 
 from budget_tracker.config import APP_DISPLAY_NAME
 from budget_tracker.services.settings_service import SettingsService
-from budget_tracker.ui.theme import apply_theme
+from budget_tracker.ui.styles import apply_theme, available_themes
 from budget_tracker.ui.views.base import BaseView
 from budget_tracker.ui.views.budgets_view import BudgetsView
 from budget_tracker.ui.views.goals_view import GoalsView
@@ -29,73 +28,116 @@ from budget_tracker.ui.views.home_view import HomeView
 from budget_tracker.ui.views.settings_view import SettingsView
 from budget_tracker.ui.views.subscriptions_view import SubscriptionsView
 from budget_tracker.ui.views.transactions_view import TransactionsView
+from budget_tracker.ui.widgets.nav_button import NavButton
 
 
 @dataclass(frozen=True)
-class NavItem:
+class NavSpec:
     icon: str
     label: str
+    section: str  # "menu" | "more"
 
 
 # Order matters — sidebar position + Ctrl+1..6 shortcut.
-NAV_ITEMS: tuple[NavItem, ...] = (
-    NavItem("\U0001F3E0", "Home"),
-    NavItem("\U0001F4B8", "Transactions"),
-    NavItem("\U0001F3AF", "Budgets"),
-    NavItem("\U0001F3C6", "Goals"),
-    NavItem("\U0001F501", "Subscriptions"),
-    NavItem("⚙️", "Settings"),
+NAV: tuple[NavSpec, ...] = (
+    NavSpec("\U0001F3E0", "Home",          "menu"),
+    NavSpec("\U0001F4B8", "Transactions",  "menu"),
+    NavSpec("\U0001F3AF", "Budgets",       "menu"),
+    NavSpec("\U0001F3C6", "Goals",         "menu"),
+    NavSpec("\U0001F501", "Subscriptions", "menu"),
+    NavSpec("⚙",     "Settings",      "more"),
 )
 
+
+# ------------------------------------------------------------------
+#  Sidebar
+# ------------------------------------------------------------------
 
 class Sidebar(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("Sidebar")
-        self.setFixedWidth(220)
+        self.setFixedWidth(232)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 22, 16, 18)
-        layout.setSpacing(4)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 22, 16, 18)
+        root.setSpacing(0)
 
-        brand = QLabel(APP_DISPLAY_NAME)
-        brand.setProperty("class", "h2")
-        layout.addWidget(brand)
-        layout.addSpacing(18)
+        root.addWidget(self._brand())
+        root.addSpacing(28)
 
-        self._buttons: list[QPushButton] = []
-        for i, item in enumerate(NAV_ITEMS):
-            if item.label == "Settings":
-                layout.addStretch(1)
-            btn = QPushButton(f"  {item.icon}   {item.label}")
-            btn.setProperty("class", "nav")
-            btn.setCheckable(True)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._buttons: list[NavButton] = []
+
+        # Menu section
+        root.addWidget(self._section_label("Menu"))
+        root.addSpacing(6)
+        for i, item in enumerate(NAV):
+            if item.section != "menu":
+                continue
+            btn = NavButton(item.icon, item.label)
             self._buttons.append(btn)
-            layout.addWidget(btn)
+            root.addWidget(btn)
+            root.addSpacing(2)
 
-    def buttons(self) -> list[QPushButton]:
+        root.addStretch(1)
+
+        # More section (Settings, future items)
+        root.addWidget(self._section_label("More"))
+        root.addSpacing(6)
+        for item in NAV:
+            if item.section != "more":
+                continue
+            btn = NavButton(item.icon, item.label)
+            self._buttons.append(btn)
+            root.addWidget(btn)
+            root.addSpacing(2)
+
+    @staticmethod
+    def _brand() -> QFrame:
+        wrap = QFrame()
+        wrap.setObjectName("SidebarBrand")
+        layout = QHBoxLayout(wrap)
+        layout.setContentsMargins(4, 0, 4, 0)
+        layout.setSpacing(10)
+
+        mark = QLabel("BT")
+        mark.setObjectName("SidebarBrandMark")
+        mark.setFixedSize(30, 30)
+
+        text = QLabel(APP_DISPLAY_NAME)
+        text.setObjectName("SidebarBrandText")
+
+        layout.addWidget(mark)
+        layout.addWidget(text, 1)
+        return wrap
+
+    @staticmethod
+    def _section_label(text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setProperty("class", "section")
+        lbl.setContentsMargins(8, 0, 0, 0)
+        return lbl
+
+    def buttons(self) -> list[NavButton]:
         return self._buttons
 
     def set_active(self, index: int) -> None:
         for i, b in enumerate(self._buttons):
-            active = i == index
-            b.setChecked(active)
-            b.setProperty("active", "true" if active else "false")
-            # Force re-polish so the [active="true"] selector updates.
-            b.style().unpolish(b)
-            b.style().polish(b)
+            b.set_active(i == index)
 
+
+# ------------------------------------------------------------------
+#  Top bar
+# ------------------------------------------------------------------
 
 class TopBar(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("TopBar")
-        self.setFixedHeight(60)
+        self.setFixedHeight(70)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(28, 0, 28, 0)
+        layout.setContentsMargins(32, 0, 28, 0)
         layout.setSpacing(10)
 
         self.title = QLabel("")
@@ -104,7 +146,7 @@ class TopBar(QFrame):
         layout.addStretch(1)
 
         self.theme_btn = QPushButton("☾")  # ☾
-        self.theme_btn.setProperty("class", "ghost")
+        self.theme_btn.setProperty("class", "icon")
         self.theme_btn.setToolTip("Toggle theme")
         self.theme_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         layout.addWidget(self.theme_btn)
@@ -115,13 +157,17 @@ class TopBar(QFrame):
         layout.addWidget(self.add_btn)
 
 
+# ------------------------------------------------------------------
+#  Main window
+# ------------------------------------------------------------------
+
 class MainWindow(QMainWindow):
     def __init__(self, conn: sqlite3.Connection, settings: SettingsService) -> None:
         super().__init__()
         self.conn = conn
         self.settings = settings
         self.setWindowTitle(APP_DISPLAY_NAME)
-        self.resize(1240, 780)
+        self.resize(1280, 820)
 
         self.sidebar = Sidebar()
         self.topbar = TopBar()
@@ -138,12 +184,10 @@ class MainWindow(QMainWindow):
         for v in self._views:
             self.stack.addWidget(v)
 
-        # Compose root layout
         body = QWidget()
         body_layout = QHBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(0)
-
         body_layout.addWidget(self.sidebar)
 
         right = QFrame()
@@ -158,19 +202,19 @@ class MainWindow(QMainWindow):
 
         # Wire up
         for i, btn in enumerate(self.sidebar.buttons()):
-            btn.clicked.connect(lambda _checked=False, idx=i: self.set_active(idx))
+            btn.clicked.connect(lambda idx=i: self.set_active(idx))
         self.topbar.add_btn.clicked.connect(self._fire_primary_action)
         self.topbar.theme_btn.clicked.connect(self._toggle_theme)
 
-        # Keyboard: Ctrl+1..6 jump to view
+        # Keyboard: Ctrl+1..N jump to view
         for i in range(len(self._views)):
             sc = QShortcut(QKeySequence(f"Ctrl+{i+1}"), self)
             sc.activated.connect(lambda idx=i: self.set_active(idx))
 
-        # Initial state
         self.set_active(0)
+        self._update_theme_icon()
 
-    # --- behaviour ---
+    # ----- behaviour -----
 
     def set_active(self, index: int) -> None:
         index = max(0, min(index, len(self._views) - 1))
@@ -194,7 +238,21 @@ class MainWindow(QMainWindow):
             view.on_primary_action()
 
     def _toggle_theme(self) -> None:
-        new_theme = "light" if self.settings.get_theme() == "dark" else "dark"
-        self.settings.set_theme(new_theme)
-        apply_theme(QApplication.instance(), new_theme)  # type: ignore[arg-type]
-        self.topbar.theme_btn.setText("☀" if new_theme == "dark" else "☾")
+        """Cycle through the available themes."""
+        themes = available_themes()
+        if not themes:
+            return
+        ids = [t.id for t in themes]
+        current_id = self.settings.get_theme()
+        idx = ids.index(current_id) if current_id in ids else 0
+        new_id = ids[(idx + 1) % len(ids)]
+        self.settings.set_theme(new_id)
+        apply_theme(QApplication.instance(), new_id)  # type: ignore[arg-type]
+        self._update_theme_icon()
+
+    def _update_theme_icon(self) -> None:
+        # Use sun glyph when on a dark theme (clicking moves toward light) and
+        # moon when on a light theme.
+        current_id = self.settings.get_theme()
+        is_lightish = current_id == "light"
+        self.topbar.theme_btn.setText("☾" if is_lightish else "☀")

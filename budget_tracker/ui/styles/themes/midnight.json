@@ -1,0 +1,33 @@
+{
+  "id": "midnight",
+  "name": "Midnight",
+  "description": "Deep navy theme with cyan accent. Demonstrates third-party themes.",
+  "colors": {
+    "bg":              "#040816",
+    "surface":         "#0B1227",
+    "surface_alt":     "#0F1830",
+    "surface_hover":   "#15203F",
+    "surface_pressed": "#1B294F",
+
+    "border":          "#13203B",
+    "border_strong":   "#1F3258",
+
+    "sidebar_bg":      "#020610",
+
+    "text":            "#E2EAF7",
+    "text_muted":      "#7E8AA6",
+    "text_subtle":     "#566378",
+
+    "accent":          "#22D3EE",
+    "accent_hover":    "#3DDFF7",
+    "accent_pressed":  "#0BB8D4",
+    "accent_text":     "#04121A",
+    "accent_soft":     "#082A36",
+
+    "success":         "#34D399",
+    "warning":         "#FBBF24",
+    "danger":          "#F87171",
+
+    "chip_bg":         "#15203F"
+  }
+}

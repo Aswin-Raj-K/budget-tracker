@@ -1,0 +1,33 @@
+{
+  "id": "dark",
+  "name": "Slate Dark",
+  "description": "Default dark theme — neutral zinc surfaces with a violet accent.",
+  "colors": {
+    "bg":              "#0A0A0F",
+    "surface":         "#13131A",
+    "surface_alt":     "#1A1A22",
+    "surface_hover":   "#20202A",
+    "surface_pressed": "#292935",
+
+    "border":          "#1F1F2A",
+    "border_strong":   "#2D2D3A",
+
+    "sidebar_bg":      "#08080C",
+
+    "text":            "#E8E8EE",
+    "text_muted":      "#9999A8",
+    "text_subtle":     "#6B6B7A",
+
+    "accent":          "#7C5CFF",
+    "accent_hover":    "#8E72FF",
+    "accent_pressed":  "#6B4DE6",
+    "accent_text":     "#FFFFFF",
+    "accent_soft":     "#1F1A38",
+
+    "success":         "#34D399",
+    "warning":         "#FBBF24",
+    "danger":          "#F87171",
+
+    "chip_bg":         "#20202A"
+  }
+}

@@ -22,5 +22,6 @@ def db_path() -> Path:
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 MIGRATIONS_DIR = PACKAGE_ROOT / "core" / "migrations"
-THEME_DIR = PACKAGE_ROOT / "ui" / "theme"
+STYLES_DIR = PACKAGE_ROOT / "ui" / "styles"
+THEMES_DIR = STYLES_DIR / "themes"
 ICONS_DIR = PACKAGE_ROOT / "ui" / "icons"

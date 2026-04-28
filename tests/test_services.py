@@ -62,8 +62,10 @@ def test_settings_service_theme(db):
     assert s.get_theme() == "dark"             # default when unset
     s.set_theme("light")
     assert s.get_theme() == "light"
+    s.set_theme("midnight")                    # any non-empty id is fine
+    assert s.get_theme() == "midnight"
     with pytest.raises(ValueError):
-        s.set_theme("neon")
+        s.set_theme("")                        # empty id rejected
 
 
 def test_settings_service_currency_lifecycle(db):
