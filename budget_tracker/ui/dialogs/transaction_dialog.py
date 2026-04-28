@@ -81,6 +81,11 @@ class TransactionDialog(QDialog):
             self._on_kind_changed()
             self._date.setDate(QDate.currentDate())
 
+        # Land on the amount field — the value the user nearly always
+        # wants to type next.
+        self._amount.setFocus()
+        self._amount.selectAll()
+
     # ---------- UI ----------
 
     def _build(self) -> None:

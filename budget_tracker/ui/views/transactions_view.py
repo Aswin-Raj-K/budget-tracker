@@ -4,7 +4,7 @@ from datetime import date
 from typing import Optional
 
 from PySide6.QtCore import QDate, Qt
-from PySide6.QtGui import QAction, QBrush, QColor
+from PySide6.QtGui import QAction, QBrush, QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -56,6 +56,12 @@ class TransactionsView(BaseView):
 
         self._build()
         self.refresh()
+
+        # Ctrl+F focuses the note search box (only fires while this view
+        # has the focus chain, thanks to WidgetWithChildrenShortcut).
+        sc = QShortcut(QKeySequence("Ctrl+F"), self)
+        sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        sc.activated.connect(lambda: (self._search.setFocus(), self._search.selectAll()))
 
     # ---------- UI ----------
 

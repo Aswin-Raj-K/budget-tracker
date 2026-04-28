@@ -49,6 +49,7 @@ class AccountDialog(QDialog):
         self._build()
         if account is not None:
             self._prefill(account)
+        self._name.setFocus()
 
     def _build(self) -> None:
         outer = QVBoxLayout(self)

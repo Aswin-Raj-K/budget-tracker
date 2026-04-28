@@ -61,6 +61,9 @@ class BudgetDialog(QDialog):
         if budget is not None:
             self._amount.setValue(float(money.to_major(budget.amount)))
 
+        self._amount.setFocus()
+        self._amount.selectAll()
+
     def _build(self) -> None:
         outer = QVBoxLayout(self)
         outer.setContentsMargins(24, 22, 24, 20)

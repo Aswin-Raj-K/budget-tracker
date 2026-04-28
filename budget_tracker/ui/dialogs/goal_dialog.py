@@ -49,6 +49,7 @@ class GoalDialog(QDialog):
         self._build()
         if goal is not None:
             self._prefill(goal)
+        self._name.setFocus()
 
     def _build(self) -> None:
         outer = QVBoxLayout(self)

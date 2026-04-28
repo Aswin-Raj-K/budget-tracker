@@ -76,6 +76,7 @@ class CategoryDialog(QDialog):
         self._build()
         if category is not None:
             self._prefill(category)
+        self._name.setFocus()
 
     def _build(self) -> None:
         outer = QVBoxLayout(self)

@@ -4,10 +4,11 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from budget_tracker.config import APP_DISPLAY_NAME
 from budget_tracker.services.settings_service import SettingsService
+from budget_tracker.ui.dialogs.transaction_dialog import TransactionDialog
 from budget_tracker.ui.styles import apply_theme, available_themes
 from budget_tracker.ui.views.base import BaseView
 from budget_tracker.ui.views.budgets_view import BudgetsView
@@ -147,13 +149,14 @@ class TopBar(QFrame):
 
         self.theme_btn = QPushButton("☾")  # ☾
         self.theme_btn.setProperty("class", "icon")
-        self.theme_btn.setToolTip("Toggle theme")
+        self.theme_btn.setToolTip("Cycle theme")
         self.theme_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         layout.addWidget(self.theme_btn)
 
         self.add_btn = QPushButton("+ Add")
         self.add_btn.setProperty("class", "primary")
         self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.add_btn.setToolTip("Add (context-aware for the current view)")
         layout.addWidget(self.add_btn)
 
 
@@ -168,6 +171,7 @@ class MainWindow(QMainWindow):
         self.settings = settings
         self.setWindowTitle(APP_DISPLAY_NAME)
         self.resize(1280, 820)
+        self.setMinimumSize(960, 640)
 
         self.sidebar = Sidebar()
         self.topbar = TopBar()
@@ -211,6 +215,18 @@ class MainWindow(QMainWindow):
             sc = QShortcut(QKeySequence(f"Ctrl+{i+1}"), self)
             sc.activated.connect(lambda idx=i: self.set_active(idx))
 
+        # Global shortcuts
+        QShortcut(QKeySequence("Ctrl+N"), self, activated=self._open_quick_add_transaction)
+        QShortcut(QKeySequence("Ctrl+T"), self, activated=self._toggle_theme)
+        QShortcut(QKeySequence("Ctrl+,"), self,
+                  activated=lambda: self.set_active(len(self._views) - 1))
+
+        # Tooltips on the sidebar buttons (with the matching shortcut hint)
+        for i, btn in enumerate(self.sidebar.buttons()):
+            view = self._views[i]
+            btn.setToolTip(f"{view.title}  (Ctrl+{i+1})")
+
+        self._restore_window_state()
         self.set_active(0)
         self._update_theme_icon()
 
@@ -256,3 +272,28 @@ class MainWindow(QMainWindow):
         current_id = self.settings.get_theme()
         is_lightish = current_id == "light"
         self.topbar.theme_btn.setText("☾" if is_lightish else "☀")
+
+    # ---- global add ----
+
+    def _open_quick_add_transaction(self) -> None:
+        dlg = TransactionDialog(self.conn, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            # Refresh whichever view is currently visible so the new
+            # transaction shows up immediately.
+            self._views[self.stack.currentIndex()].refresh()
+
+    # ---- window state ----
+
+    def _qsettings(self) -> QSettings:
+        return QSettings()  # uses ApplicationName/OrgName set in main.py
+
+    def _restore_window_state(self) -> None:
+        s = self._qsettings()
+        geo = s.value("window/geometry")
+        if geo:
+            self.restoreGeometry(geo)
+
+    def closeEvent(self, ev) -> None:  # noqa: N802 (Qt naming)
+        s = self._qsettings()
+        s.setValue("window/geometry", self.saveGeometry())
+        super().closeEvent(ev)

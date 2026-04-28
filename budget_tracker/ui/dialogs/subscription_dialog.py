@@ -58,6 +58,7 @@ class SubscriptionDialog(QDialog):
             self._prefill(subscription)
         else:
             self._next_date.setDate(QDate.currentDate())
+        self._name.setFocus()
 
     def _build(self) -> None:
         outer = QVBoxLayout(self)
