@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import calendar
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QVBoxLayout
 
 from budget_tracker.core import money
 from budget_tracker.core.repositories.categories import CategoryRepository
 from budget_tracker.services._month import current_month
 from budget_tracker.services.budget_service import BudgetService
 from budget_tracker.services.summary_service import SummaryService
+from budget_tracker.ui.dialogs.transaction_dialog import TransactionDialog
 from budget_tracker.ui.views.base import BaseView
 from budget_tracker.ui.widgets.kpi_card import KpiCard
 from budget_tracker.ui.widgets.progress_row import ProgressRow
@@ -29,8 +30,6 @@ def _muted_message(text: str) -> QLabel:
 class HomeView(BaseView):
     title = "Home"
     primary_action_label = "+ Add Transaction"
-
-    add_transaction_requested = Signal()
 
     def __init__(self, conn, parent=None):
         super().__init__(conn, parent)
@@ -139,6 +138,6 @@ class HomeView(BaseView):
     # ---------- actions ----------
 
     def on_primary_action(self) -> None:
-        # Real dialog wiring lands in Phase 8; the signal is exposed now so
-        # the main window can connect once it exists.
-        self.add_transaction_requested.emit()
+        dlg = TransactionDialog(self.conn, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.refresh()
