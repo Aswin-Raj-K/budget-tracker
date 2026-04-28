@@ -46,7 +46,7 @@ class SectionCard(QFrame):
             head.addWidget(self.action)
         outer.addLayout(head)
 
-        body = QWidget()
+        body = QWidget(self)
         self._body_layout = QVBoxLayout(body)
         self._body_layout.setContentsMargins(0, 0, 0, 0)
         self._body_layout.setSpacing(10)

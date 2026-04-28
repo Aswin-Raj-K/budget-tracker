@@ -63,10 +63,14 @@ class SettingsView(BaseView):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        scroll = QScrollArea()
+        # IMPORTANT: every widget in this view is created with an explicit
+        # parent. A parentless QWidget is a top-level window — even if it's
+        # never .show()-ed, the moment it gets reparented its native handle
+        # can briefly flash on Windows. Pass a parent at construction.
+        scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        host = QWidget()
+        host = QWidget(scroll)
         self._host_layout = QVBoxLayout(host)
         self._host_layout.setContentsMargins(28, 22, 28, 28)
         self._host_layout.setSpacing(20)
@@ -74,14 +78,14 @@ class SettingsView(BaseView):
         outer.addWidget(scroll)
 
         # Sections — created lazily so refresh() can repopulate them.
-        self._appearance_card = self._build_appearance_card()
-        self._money_card = self._build_money_card()
-        self._accounts_card = SectionCard("Accounts", "+ Add account")
+        self._appearance_card = self._build_appearance_card(host)
+        self._money_card = self._build_money_card(host)
+        self._accounts_card = SectionCard("Accounts", "+ Add account", parent=host)
         self._accounts_card.action.clicked.connect(self._add_account)
-        self._categories_card = SectionCard("Categories", "+ Add category")
+        self._categories_card = SectionCard("Categories", "+ Add category", parent=host)
         self._categories_card.action.clicked.connect(self._add_category)
-        self._data_card = self._build_data_card()
-        self._about_card = self._build_about_card()
+        self._data_card = self._build_data_card(host)
+        self._about_card = self._build_about_card(host)
 
         for c in (
             self._appearance_card, self._money_card,
@@ -91,8 +95,8 @@ class SettingsView(BaseView):
             self._host_layout.addWidget(c)
         self._host_layout.addStretch(1)
 
-    def _build_appearance_card(self) -> SectionCard:
-        card = SectionCard("Appearance")
+    def _build_appearance_card(self, parent) -> SectionCard:
+        card = SectionCard("Appearance", parent=parent)
         body = card.body_layout()
 
         row = QHBoxLayout()
@@ -115,8 +119,8 @@ class SettingsView(BaseView):
 
         return card
 
-    def _build_money_card(self) -> SectionCard:
-        card = SectionCard("Money")
+    def _build_money_card(self, parent) -> SectionCard:
+        card = SectionCard("Money", parent=parent)
         body = card.body_layout()
 
         row = QHBoxLayout()
@@ -145,8 +149,8 @@ class SettingsView(BaseView):
         body.addWidget(note)
         return card
 
-    def _build_data_card(self) -> SectionCard:
-        card = SectionCard("Data")
+    def _build_data_card(self, parent) -> SectionCard:
+        card = SectionCard("Data", parent=parent)
         body = card.body_layout()
 
         path_lbl = QLabel(str(db_path()))
@@ -172,8 +176,8 @@ class SettingsView(BaseView):
         body.addLayout(row)
         return card
 
-    def _build_about_card(self) -> SectionCard:
-        card = SectionCard("About")
+    def _build_about_card(self, parent) -> SectionCard:
+        card = SectionCard("About", parent=parent)
         body = card.body_layout()
         name = QLabel("Budget Tracker")
         name.setProperty("class", "h3")
@@ -276,7 +280,9 @@ class SettingsView(BaseView):
     # ---------- row factories ----------
 
     def _account_row(self, a: Account) -> QFrame:
-        row = QFrame()
+        # Parent to the section card so the row never exists as an unparented
+        # top-level window (which can briefly flash on Windows).
+        row = QFrame(self._accounts_card)
         row.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 4, 0, 4)
@@ -316,7 +322,7 @@ class SettingsView(BaseView):
         return row
 
     def _category_row(self, c: Category, *, indent: bool = False) -> QFrame:
-        row = QFrame()
+        row = QFrame(self._categories_card)
         layout = QHBoxLayout(row)
         layout.setContentsMargins(28 if indent else 0, 4, 0, 4)
         layout.setSpacing(10)

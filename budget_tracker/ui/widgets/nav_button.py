@@ -25,16 +25,16 @@ class NavButton(QFrame):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setFixedHeight(38)
 
-        self._stripe = QFrame()
+        self._stripe = QFrame(self)
         self._stripe.setObjectName("NavActiveStripe")
         self._stripe.setFixedWidth(3)
 
-        self._icon = QLabel(icon)
+        self._icon = QLabel(icon, self)
         self._icon.setObjectName("NavIcon")
         self._icon.setFixedWidth(22)
         self._icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self._label = QLabel(label)
+        self._label = QLabel(label, self)
         self._label.setObjectName("NavLabel")
 
         layout = QHBoxLayout(self)

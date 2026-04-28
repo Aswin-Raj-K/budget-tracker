@@ -65,7 +65,7 @@ class Sidebar(QFrame):
         root.setContentsMargins(16, 22, 16, 18)
         root.setSpacing(0)
 
-        root.addWidget(self._brand())
+        root.addWidget(self._brand(self))
         root.addSpacing(28)
 
         self._buttons: list[NavButton] = []
@@ -76,7 +76,7 @@ class Sidebar(QFrame):
         for i, item in enumerate(NAV):
             if item.section != "menu":
                 continue
-            btn = NavButton(item.icon, item.label)
+            btn = NavButton(item.icon, item.label, parent=self)
             self._buttons.append(btn)
             root.addWidget(btn)
             root.addSpacing(2)
@@ -89,14 +89,14 @@ class Sidebar(QFrame):
         for item in NAV:
             if item.section != "more":
                 continue
-            btn = NavButton(item.icon, item.label)
+            btn = NavButton(item.icon, item.label, parent=self)
             self._buttons.append(btn)
             root.addWidget(btn)
             root.addSpacing(2)
 
     @staticmethod
-    def _brand() -> QFrame:
-        wrap = QFrame()
+    def _brand(parent) -> QFrame:
+        wrap = QFrame(parent)
         wrap.setObjectName("SidebarBrand")
         layout = QHBoxLayout(wrap)
         layout.setContentsMargins(4, 0, 4, 0)
@@ -188,13 +188,16 @@ class MainWindow(QMainWindow):
         for v in self._views:
             self.stack.addWidget(v)
 
-        body = QWidget()
+        # Pass `self` as parent on creation so these intermediate containers
+        # never exist as parentless top-level widgets (which can briefly
+        # flash a small grey window on Windows before they get reparented).
+        body = QWidget(self)
         body_layout = QHBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(0)
         body_layout.addWidget(self.sidebar)
 
-        right = QFrame()
+        right = QFrame(body)
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(0)

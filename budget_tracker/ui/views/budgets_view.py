@@ -149,10 +149,10 @@ class BudgetsView(BaseView):
         outer.addWidget(self._summary_lbl)
 
         # Scrollable list of budget cards
-        self._scroll = QScrollArea()
+        self._scroll = QScrollArea(self)
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._list_host = QWidget()
+        self._list_host = QWidget(self._scroll)
         self._list_layout = QVBoxLayout(self._list_host)
         self._list_layout.setContentsMargins(0, 0, 0, 0)
         self._list_layout.setSpacing(10)
@@ -197,7 +197,7 @@ class BudgetsView(BaseView):
             self._summary_lbl.setText("")
 
         for u in usages:
-            card = _BudgetCard(u)
+            card = _BudgetCard(u, parent=self._list_host)
             card.edit_requested.connect(lambda usage=u: self._edit(usage))
             card.delete_requested.connect(lambda usage=u: self._delete(usage))
             self._list_layout.addWidget(card)

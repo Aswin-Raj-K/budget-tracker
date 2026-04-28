@@ -120,7 +120,10 @@ class BudgetDialog(QDialog):
             return
 
         used = {b.category_id for b in self._budgets.for_month(self._month)}  # type: ignore[arg-type]
-        for c in self._categories.list(kind="expense"):
+        # Budgets only live on top-level categories — subcategory spend rolls
+        # up into the parent. Listing subcategories here would create budgets
+        # that never receive any spend.
+        for c in self._categories.list_top_level(kind="expense"):
             if c.id in used:
                 continue
             self._category.addItem(c.name, c.id)
@@ -128,9 +131,9 @@ class BudgetDialog(QDialog):
         if self._category.count() == 0:
             QMessageBox.information(
                 self,
-                "All expense categories are budgeted",
-                f"Every expense category already has a budget for {self._month}.\n"
-                "Edit an existing one or add a new category in Settings.",
+                "All top-level expense categories are budgeted",
+                f"Every top-level expense category already has a budget for {self._month}.\n"
+                "Edit an existing one or add a new top-level category in Settings.",
             )
             self.reject()
 

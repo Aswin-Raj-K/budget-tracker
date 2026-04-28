@@ -159,11 +159,11 @@ class GoalsView(BaseView):
         outer.setContentsMargins(28, 22, 28, 24)
         outer.setSpacing(20)
 
-        self._scroll = QScrollArea()
+        self._scroll = QScrollArea(self)
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
 
-        self._host = QWidget()
+        self._host = QWidget(self._scroll)
         self._host_layout = QVBoxLayout(self._host)
         self._host_layout.setContentsMargins(0, 0, 0, 0)
         self._host_layout.setSpacing(22)
@@ -212,7 +212,7 @@ class GoalsView(BaseView):
         grid.setHorizontalSpacing(14)
         grid.setVerticalSpacing(14)
         for i, p in enumerate(items):
-            card = _GoalCard(p)
+            card = _GoalCard(p, parent=self._host)
             card.edit_requested.connect(lambda gp=p: self._edit(gp))
             card.delete_requested.connect(lambda gp=p: self._delete(gp))
             card.contribute_requested.connect(lambda gp=p: self._contribute(gp))
