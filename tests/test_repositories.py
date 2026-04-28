@@ -95,6 +95,57 @@ def test_category_filter_by_kind(db):
     assert len(repo.list()) == 2
 
 
+def test_category_parent_id_round_trip(db):
+    repo = CategoryRepository(db)
+    parent = repo.add(Category(None, "Groceries", "expense", "#F00", "x"))
+    child = repo.add(Category(None, "Chicken", "expense", "#F00", "x", parent_id=parent.id))
+    fetched = repo.get(child.id)
+    assert fetched.parent_id == parent.id
+
+
+def test_list_top_level_excludes_children(db):
+    repo = CategoryRepository(db)
+    parent = repo.add(Category(None, "Groceries", "expense", "#F00", "x"))
+    repo.add(Category(None, "Chicken", "expense", "#F00", "x", parent_id=parent.id))
+    repo.add(Category(None, "Salary", "income", "#0F0", "x"))
+
+    expense_top = [c.name for c in repo.list_top_level(kind="expense")]
+    assert expense_top == ["Groceries"]
+
+    all_top = {c.name for c in repo.list_top_level()}
+    assert all_top == {"Groceries", "Salary"}
+
+
+def test_children_of(db):
+    repo = CategoryRepository(db)
+    parent = repo.add(Category(None, "Groceries", "expense", "#F00", "x"))
+    repo.add(Category(None, "Chicken", "expense", "#F00", "x", parent_id=parent.id))
+    repo.add(Category(None, "Vegetables", "expense", "#F00", "x", parent_id=parent.id))
+    other = repo.add(Category(None, "Dining", "expense", "#F00", "x"))
+
+    kids = repo.children_of(parent.id)
+    assert sorted(c.name for c in kids) == ["Chicken", "Vegetables"]
+    assert repo.children_of(other.id) == []
+
+
+def test_top_level_id_for(db):
+    repo = CategoryRepository(db)
+    parent = repo.add(Category(None, "Groceries", "expense", "#F00", "x"))
+    child = repo.add(Category(None, "Chicken", "expense", "#F00", "x", parent_id=parent.id))
+    assert repo.top_level_id_for(parent.id) == parent.id
+    assert repo.top_level_id_for(child.id) == parent.id
+
+
+def test_delete_parent_promotes_children_to_top_level(db):
+    repo = CategoryRepository(db)
+    parent = repo.add(Category(None, "Groceries", "expense", "#F00", "x"))
+    child = repo.add(Category(None, "Chicken", "expense", "#F00", "x", parent_id=parent.id))
+    repo.delete(parent.id)
+
+    surviving = repo.get(child.id)
+    assert surviving.parent_id is None
+
+
 # ---- transactions ----
 
 def test_transaction_add_and_list(db):

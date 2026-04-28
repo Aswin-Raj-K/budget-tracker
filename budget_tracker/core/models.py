@@ -28,6 +28,7 @@ class Category:
     kind: CategoryKind
     color: str
     icon: str
+    parent_id: Optional[int] = None        # None = top-level
     archived: bool = False
 
 

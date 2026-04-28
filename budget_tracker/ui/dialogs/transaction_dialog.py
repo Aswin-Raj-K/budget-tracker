@@ -178,12 +178,38 @@ class TransactionDialog(QDialog):
         self._populate_categories(kind)
 
     def _populate_categories(self, kind: TxKind) -> None:
+        """Hierarchical category list: each top-level entry is followed by
+        its children indented with a leading bullet so users can pick the
+        most specific category."""
         self._category.clear()
         if kind == "transfer":
             return
-        for c in self._all_categories:
-            if c.kind == kind:
-                self._category.addItem(c.name, c.id)
+
+        same_kind = [c for c in self._all_categories if c.kind == kind]
+        children_by_parent: dict[int, list] = {}
+        top_level: list = []
+        for c in same_kind:
+            if c.parent_id is None:
+                top_level.append(c)
+            else:
+                children_by_parent.setdefault(c.parent_id, []).append(c)
+
+        top_level.sort(key=lambda c: c.name.lower())
+        for top in top_level:
+            self._category.addItem(top.name, top.id)
+            kids = sorted(children_by_parent.get(top.id, []), key=lambda c: c.name.lower())
+            for kid in kids:
+                self._category.addItem(f"   · {kid.name}", kid.id)
+
+        # Append any orphans whose parent isn't in the same-kind set (should
+        # be rare, but keep them reachable rather than hidden).
+        orphans = sorted(
+            (c for c in same_kind
+             if c.parent_id is not None and c.parent_id not in {t.id for t in top_level}),
+            key=lambda c: c.name.lower(),
+        )
+        for orph in orphans:
+            self._category.addItem(orph.name, orph.id)
 
     def _prefill(self, tx: Transaction) -> None:
         idx = next(i for i, (v, _) in enumerate(KIND_LABELS) if v == tx.kind)

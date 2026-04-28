@@ -43,6 +43,13 @@ def test_schema_migrations_records_applied():
     rows = conn.execute("SELECT name FROM schema_migrations ORDER BY name").fetchall()
     names = [r["name"] for r in rows]
     assert "001_init.sql" in names
+    assert "002_subcategories.sql" in names
+
+
+def test_categories_has_parent_id_column():
+    conn = init_db(":memory:")
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(categories)")}
+    assert "parent_id" in cols
 
 
 def test_check_constraint_blocks_bad_account_type():

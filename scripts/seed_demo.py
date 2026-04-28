@@ -79,6 +79,19 @@ def main() -> None:
         c = cats.add(Category(None, name, kind, color, icon))
         cat_ids[name] = c.id
 
+    # Subcategories under Groceries (demonstrates the new one-level nesting).
+    grocery_subs = [
+        ("Chicken",    "#F87171", "🍗"),
+        ("Vegetables", "#34D399", "🥬"),
+        ("Fish",       "#60A5FA", "🐟"),
+        ("Fruit",      "#FBBF24", "🍎"),
+    ]
+    for name, color, icon in grocery_subs:
+        sub = cats.add(Category(
+            None, name, "expense", color, icon, parent_id=cat_ids["Groceries"]
+        ))
+        cat_ids[name] = sub.id
+
     today = date.today()
     month = current_month()
 
@@ -88,12 +101,14 @@ def main() -> None:
         a_check.id, None, cat_ids["Salary"], "April salary",
     ))
 
-    # Spread a handful of expenses across the month
+    # Spread a handful of expenses across the month. Some are tagged to
+    # Groceries directly, some to its subcategories — both should roll up
+    # into the Groceries budget.
     sample_expenses = [
-        ("Groceries", 1245_00, "BigBasket"),
+        ("Chicken",    520_00,  "Butcher"),
         ("Dining",    480_00,  "Lunch with team"),
         ("Transport", 260_00,  "Uber"),
-        ("Groceries", 890_00,  "Local store"),
+        ("Vegetables", 340_00,  "Local store"),
         ("Dining",    1320_00, "Sunday dinner"),
         ("Rent",      28000_00,"Monthly rent"),
         ("Utilities", 1850_00, "Electricity"),
@@ -104,6 +119,8 @@ def main() -> None:
         ("Subscriptions", 649_00, "Netflix"),
         ("Transport", 320_00, "Metro card"),
         ("Dining",    260_00,  "Coffee"),
+        ("Fish",      780_00,  "Fish market"),
+        ("Fruit",     420_00,  "Mangos"),
     ]
     for i, (cat_name, amount, note) in enumerate(sample_expenses):
         d = today - timedelta(days=i * 2)

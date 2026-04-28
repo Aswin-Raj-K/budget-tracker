@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 from calendar import monthrange
 from datetime import date
 
@@ -29,3 +30,17 @@ def current_month() -> str:
 
 def to_month_key(d: date) -> str:
     return f"{d.year:04d}-{d.month:02d}"
+
+
+def shift_month(month: str, delta: int) -> str:
+    """Return a 'YYYY-MM' string offset by `delta` months (positive or negative)."""
+    y, m = parse_month(month)
+    total = (y * 12 + (m - 1)) + delta
+    new_y, new_m = divmod(total, 12)
+    return f"{new_y:04d}-{new_m + 1:02d}"
+
+
+def human_month(month: str) -> str:
+    """Render 'YYYY-MM' as 'Month YYYY' (e.g. 'April 2026')."""
+    y, m = parse_month(month)
+    return f"{calendar.month_name[m]} {y}"

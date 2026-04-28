@@ -245,8 +245,33 @@ class SettingsView(BaseView):
             empty.setWordWrap(True)
             body.addWidget(empty)
             return
+
+        # Render parents first, then their children indented underneath.
+        # Orphan rows (parent_id pointing nowhere usable) fall through to
+        # the bottom so they remain visible/editable.
+        children_by_parent: dict[int, list[Category]] = {}
+        top_level: list[Category] = []
         for c in cats:
-            body.addWidget(self._category_row(c))
+            if c.parent_id is None:
+                top_level.append(c)
+            else:
+                children_by_parent.setdefault(c.parent_id, []).append(c)
+
+        top_level.sort(key=lambda c: (c.kind, c.name.lower()))
+        rendered: set[int] = set()
+        for top in top_level:
+            body.addWidget(self._category_row(top, indent=False))
+            rendered.add(top.id)
+            kids = sorted(children_by_parent.get(top.id, []), key=lambda c: c.name.lower())
+            for kid in kids:
+                body.addWidget(self._category_row(kid, indent=True))
+                rendered.add(kid.id)
+
+        # Orphans (subcategory whose parent is missing or filtered)
+        for c in cats:
+            if c.id in rendered:
+                continue
+            body.addWidget(self._category_row(c, indent=False))
 
     # ---------- row factories ----------
 
@@ -290,25 +315,32 @@ class SettingsView(BaseView):
         layout.addWidget(archive)
         return row
 
-    def _category_row(self, c: Category) -> QFrame:
+    def _category_row(self, c: Category, *, indent: bool = False) -> QFrame:
         row = QFrame()
         layout = QHBoxLayout(row)
-        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setContentsMargins(28 if indent else 0, 4, 0, 4)
         layout.setSpacing(10)
 
-        layout.addWidget(ColorDot(c.color))
+        if indent:
+            tree_glyph = QLabel("·")
+            tree_glyph.setProperty("class", "subtle")
+            tree_glyph.setFixedWidth(10)
+            layout.addWidget(tree_glyph)
+
+        layout.addWidget(ColorDot(c.color, size=8 if indent else 10))
         icon_lbl = QLabel(c.icon)
         icon_lbl.setFixedWidth(20)
         layout.addWidget(icon_lbl)
 
         name = QLabel(c.name)
-        name.setProperty("class", "h3")
+        name.setProperty("class", "h3" if not indent else "muted")
         if c.archived:
             name.setStyleSheet("color: #6B6B7A;")
         layout.addWidget(name)
 
         kind_lbl = QLabel(c.kind.capitalize())
         kind_lbl.setProperty("class", "chip")
+        kind_lbl.setVisible(not indent)
         layout.addWidget(kind_lbl)
 
         if c.archived:

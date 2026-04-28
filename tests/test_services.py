@@ -19,7 +19,14 @@ from budget_tracker.core.repositories.categories import CategoryRepository
 from budget_tracker.core.repositories.goals import GoalRepository
 from budget_tracker.core.repositories.subscriptions import SubscriptionRepository
 from budget_tracker.core.repositories.transactions import TransactionRepository
-from budget_tracker.services._month import current_month, month_bounds, parse_month, to_month_key
+from budget_tracker.services._month import (
+    current_month,
+    human_month,
+    month_bounds,
+    parse_month,
+    shift_month,
+    to_month_key,
+)
 from budget_tracker.services.budget_service import BudgetService
 from budget_tracker.services.goal_service import GoalService
 from budget_tracker.services.settings_service import SettingsService
@@ -48,6 +55,19 @@ def test_parse_month_validates():
 def test_to_month_key():
     assert to_month_key(date(2026, 4, 15)) == "2026-04"
     assert to_month_key(date(2026, 1, 1)) == "2026-01"
+
+
+def test_shift_month_handles_year_boundaries():
+    assert shift_month("2026-04", 1) == "2026-05"
+    assert shift_month("2026-04", -1) == "2026-03"
+    assert shift_month("2026-12", 1) == "2027-01"
+    assert shift_month("2026-01", -1) == "2025-12"
+    assert shift_month("2026-04", 12) == "2027-04"
+
+
+def test_human_month():
+    assert human_month("2026-04") == "April 2026"
+    assert human_month("2026-12") == "December 2026"
 
 
 def test_current_month_format():
@@ -124,6 +144,66 @@ def test_budget_usage_under_with_no_spend(db):
 
 def test_budget_usage_empty_when_no_budgets(db):
     assert BudgetService(db).usage_for_month("2026-04") == []
+
+
+def test_budget_usage_rolls_subcategory_spend_into_parent(db):
+    """Spend on Groceries → Chicken counts toward the Groceries budget."""
+    acct = AccountRepository(db).add(Account(None, "Cash", "cash"))
+    parent = CategoryRepository(db).add(Category(None, "Groceries", "expense", "#F00", "x"))
+    child = CategoryRepository(db).add(
+        Category(None, "Chicken", "expense", "#F00", "x", parent_id=parent.id)
+    )
+    BudgetRepository(db).upsert(Budget(None, parent.id, 10000, "2026-04"))
+
+    tx = TransactionRepository(db)
+    # Mix of parent-direct and child spend, all rolls up to parent's budget.
+    tx.add(Transaction(None, date(2026, 4, 5), "expense", 3000, acct.id, None, parent.id))
+    tx.add(Transaction(None, date(2026, 4, 10), "expense", 4000, acct.id, None, child.id))
+
+    usages = BudgetService(db).usage_for_month("2026-04")
+    assert len(usages) == 1
+    u = usages[0]
+    assert u.category.name == "Groceries"
+    assert u.spent_amount == 7000      # 3000 + 4000
+    assert u.percent == pytest.approx(70.0)
+    assert u.status == "under"
+
+
+def test_summary_top_category_rolls_up_to_parent(db):
+    """KPI 'Top category' shows the parent name even when spend was on a child."""
+    acct = AccountRepository(db).add(Account(None, "Cash", "cash"))
+    groceries = CategoryRepository(db).add(Category(None, "Groceries", "expense", "#F00", "x"))
+    chicken = CategoryRepository(db).add(
+        Category(None, "Chicken", "expense", "#F00", "x", parent_id=groceries.id)
+    )
+    rent = CategoryRepository(db).add(Category(None, "Rent", "expense", "#0F0", "x"))
+
+    tx = TransactionRepository(db)
+    tx.add(Transaction(None, date(2026, 4, 1), "expense", 4000, acct.id, None, chicken.id))
+    tx.add(Transaction(None, date(2026, 4, 5), "expense", 3500, acct.id, None, groceries.id))
+    tx.add(Transaction(None, date(2026, 4, 10), "expense", 5000, acct.id, None, rent.id))
+
+    k = SummaryService(db).kpis_for_month("2026-04")
+    # Groceries rolled up = 7500, beats Rent at 5000.
+    assert k.top_category is not None
+    assert k.top_category.name == "Groceries"
+    assert k.top_category_amount == 7500
+
+
+def test_recent_transactions_filters_by_month(db):
+    acct = AccountRepository(db).add(Account(None, "Cash", "cash"))
+    tx = TransactionRepository(db)
+    tx.add(Transaction(None, date(2026, 3, 15), "expense", 100, acct.id))
+    tx.add(Transaction(None, date(2026, 4, 10), "expense", 200, acct.id))
+    tx.add(Transaction(None, date(2026, 4, 28), "expense", 300, acct.id))
+
+    svc = SummaryService(db)
+    march = svc.recent_transactions(month="2026-03")
+    april = svc.recent_transactions(month="2026-04")
+    everything = svc.recent_transactions()
+    assert [t.amount for t in march] == [100]
+    assert [t.amount for t in april] == [300, 200]    # newest first
+    assert len(everything) == 3
 
 
 # ---- goal service ----

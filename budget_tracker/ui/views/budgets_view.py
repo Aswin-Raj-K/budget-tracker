@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import calendar
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
@@ -20,23 +19,11 @@ from PySide6.QtWidgets import (
 
 from budget_tracker.core import money
 from budget_tracker.core.repositories.budgets import BudgetRepository
-from budget_tracker.services._month import current_month, parse_month
+from budget_tracker.services._month import current_month, human_month, shift_month
 from budget_tracker.services.budget_service import BudgetService, BudgetUsage
 from budget_tracker.ui.dialogs.budget_dialog import BudgetDialog
 from budget_tracker.ui.views.base import BaseView
 from budget_tracker.ui.widgets.progress_row import ProgressRow
-
-
-def _shift_month(month: str, delta: int) -> str:
-    y, m = parse_month(month)
-    total = (y * 12 + (m - 1)) + delta
-    new_y, new_m = divmod(total, 12)
-    return f"{new_y:04d}-{new_m + 1:02d}"
-
-
-def _human_month(month: str) -> str:
-    y, m = parse_month(month)
-    return f"{calendar.month_name[m]} {y}"
 
 
 class _BudgetCard(QFrame):
@@ -184,7 +171,7 @@ class BudgetsView(BaseView):
     # ---------- behaviour ----------
 
     def _shift(self, delta: int) -> None:
-        self._month = _shift_month(self._month, delta)
+        self._month = shift_month(self._month, delta)
         self.refresh()
 
     def _jump_to_current(self) -> None:
@@ -192,7 +179,7 @@ class BudgetsView(BaseView):
         self.refresh()
 
     def refresh(self) -> None:
-        self._month_lbl.setText(_human_month(self._month))
+        self._month_lbl.setText(human_month(self._month))
         usages = self._service.usage_for_month(self._month)
 
         self._clear_list()

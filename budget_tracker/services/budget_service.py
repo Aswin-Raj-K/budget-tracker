@@ -19,7 +19,7 @@ WARNING_THRESHOLD = 80.0
 class BudgetUsage:
     category: Category
     budget_amount: int       # monthly limit, minor units
-    spent_amount: int        # actual spend this month, minor units
+    spent_amount: int        # actual spend this month, minor units (rolled up)
     percent: float           # 0..N (can exceed 100)
     status: BudgetStatus
     remaining: int           # may be negative when over
@@ -40,14 +40,24 @@ class BudgetService:
             return []
 
         spend_by_cat = self.tx.sum_by_category(start=start, end=end, kind="expense")
-        by_id = {c.id: c for c in self.categories.list(include_archived=True)}
+        all_categories = self.categories.list(include_archived=True)
+        by_id = {c.id: c for c in all_categories}
+
+        # Roll subcategory spend up into the parent. Budgets are top-level only.
+        spend_by_top: dict[int, int] = {}
+        for cat_id, amount in spend_by_cat.items():
+            if cat_id is None:
+                continue
+            cat = by_id.get(cat_id)
+            top_id = cat.parent_id if cat and cat.parent_id is not None else cat_id
+            spend_by_top[top_id] = spend_by_top.get(top_id, 0) + amount
 
         out: list[BudgetUsage] = []
         for b in budgets:
             cat = by_id.get(b.category_id)
             if cat is None:
                 continue
-            spent = spend_by_cat.get(b.category_id, 0)
+            spent = spend_by_top.get(b.category_id, 0)
             percent = (spent / b.amount * 100.0) if b.amount > 0 else 0.0
             status: BudgetStatus
             if percent >= 100:

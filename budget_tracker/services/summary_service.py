@@ -16,7 +16,7 @@ class MonthlyKpis:
     spent: int
     income: int
     savings_rate: float                  # 0..100, 0 if no income
-    top_category: Optional[Category]     # highest expense category, may be None
+    top_category: Optional[Category]     # highest expense category (rolled up to parent), may be None
     top_category_amount: int             # 0 if no top category
 
 
@@ -35,14 +35,24 @@ class SummaryService:
         if income > 0:
             savings_rate = max(0.0, (income - spent) / income * 100.0)
 
+        # Top category: roll subcategory spend up to the parent so the KPI
+        # shows "Groceries" rather than "Chicken".
         by_cat = self.tx.sum_by_category(start=start, end=end, kind="expense")
+        cats = {c.id: c for c in self.categories.list(include_archived=True)}
+
+        rolled: dict[int, int] = {}
+        for cat_id, amount in by_cat.items():
+            if cat_id is None:
+                continue
+            cat = cats.get(cat_id)
+            top_id = cat.parent_id if cat and cat.parent_id is not None else cat_id
+            rolled[top_id] = rolled.get(top_id, 0) + amount
+
         top_cat: Optional[Category] = None
         top_amount = 0
-        if by_cat:
-            cat_id, top_amount = max(by_cat.items(), key=lambda kv: kv[1])
-            if cat_id is not None:
-                cats = {c.id: c for c in self.categories.list(include_archived=True)}
-                top_cat = cats.get(cat_id)
+        if rolled:
+            top_id, top_amount = max(rolled.items(), key=lambda kv: kv[1])
+            top_cat = cats.get(top_id)
 
         return MonthlyKpis(
             month=month,
@@ -53,5 +63,13 @@ class SummaryService:
             top_category_amount=top_amount,
         )
 
-    def recent_transactions(self, limit: int = 8) -> list[Transaction]:
-        return self.tx.list(limit=limit)
+    def recent_transactions(
+        self,
+        limit: int = 8,
+        month: Optional[str] = None,
+    ) -> list[Transaction]:
+        """Most-recent transactions, optionally restricted to a calendar month."""
+        if month is None:
+            return self.tx.list(limit=limit)
+        start, end = month_bounds(month)
+        return self.tx.list(start=start, end=end, limit=limit)
