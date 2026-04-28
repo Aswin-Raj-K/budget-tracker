@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+import sqlite3
+
+from budget_tracker.core import money
+from budget_tracker.core.repositories.settings import SettingsRepository
+
+KEY_THEME = "theme"
+KEY_CURRENCY = "currency"
+
+VALID_THEMES = {"dark", "light", "system"}
+
+
+class SettingsService:
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.repo = SettingsRepository(conn)
+
+    # --- theme ---
+
+    def get_theme(self) -> str:
+        return self.repo.get(KEY_THEME) or "dark"
+
+    def set_theme(self, theme: str) -> None:
+        if theme not in VALID_THEMES:
+            raise ValueError(f"Invalid theme {theme!r}")
+        self.repo.set(KEY_THEME, theme)
+
+    # --- currency ---
+
+    def has_currency(self) -> bool:
+        return self.repo.get(KEY_CURRENCY) is not None
+
+    def get_currency_code(self) -> str:
+        return self.repo.get(KEY_CURRENCY) or "INR"
+
+    def set_currency(self, code: str) -> None:
+        cur = money.Currency.from_code(code)        # validate
+        self.repo.set(KEY_CURRENCY, cur.code)
+        money.set_active(cur)
+
+    def apply_to_session(self) -> None:
+        """Sync the in-memory active currency from saved settings."""
+        if self.has_currency():
+            money.set_active(self.get_currency_code())
