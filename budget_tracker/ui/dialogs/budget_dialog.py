@@ -120,20 +120,34 @@ class BudgetDialog(QDialog):
             return
 
         used = {b.category_id for b in self._budgets.for_month(self._month)}  # type: ignore[arg-type]
-        # Budgets only live on top-level categories — subcategory spend rolls
-        # up into the parent. Listing subcategories here would create budgets
-        # that never receive any spend.
-        for c in self._categories.list_top_level(kind="expense"):
-            if c.id in used:
-                continue
-            self._category.addItem(c.name, c.id)
+        # Render hierarchically: each top-level expense category, then its
+        # subcategories indented underneath. Either level may have its own
+        # budget — parent budgets roll subcategory spend up; subcategory
+        # budgets track only their own spend.
+        all_expense = self._categories.list(kind="expense")
+        children_by_parent: dict[int, list] = {}
+        top_level: list = []
+        for c in all_expense:
+            if c.parent_id is None:
+                top_level.append(c)
+            else:
+                children_by_parent.setdefault(c.parent_id, []).append(c)
+
+        top_level.sort(key=lambda c: c.name.lower())
+        for top in top_level:
+            if top.id not in used:
+                self._category.addItem(top.name, top.id)
+            for kid in sorted(children_by_parent.get(top.id, []), key=lambda c: c.name.lower()):
+                if kid.id in used:
+                    continue
+                self._category.addItem(f"   · {kid.name}", kid.id)
 
         if self._category.count() == 0:
             QMessageBox.information(
                 self,
-                "All top-level expense categories are budgeted",
-                f"Every top-level expense category already has a budget for {self._month}.\n"
-                "Edit an existing one or add a new top-level category in Settings.",
+                "All expense categories are budgeted",
+                f"Every expense category already has a budget for {self._month}.\n"
+                "Edit an existing one, or add a new category in Settings.",
             )
             self.reject()
 

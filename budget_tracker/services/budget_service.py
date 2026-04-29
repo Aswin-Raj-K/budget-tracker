@@ -57,11 +57,14 @@ class BudgetService:
             cat = by_id.get(b.category_id)
             if cat is None:
                 continue
-            # Budgets are top-level only. Skip any orphan budget that points
-            # at a subcategory — its spend was already rolled into the parent.
-            if cat.parent_id is not None:
-                continue
-            spent = spend_by_top.get(b.category_id, 0)
+            # Top-level budgets aggregate spend across the whole subtree;
+            # subcategory budgets track just their own direct spend. The
+            # same transaction can therefore count toward both — a Chicken
+            # spend hits both the Chicken cap and the Groceries cap.
+            if cat.parent_id is None:
+                spent = spend_by_top.get(b.category_id, 0)
+            else:
+                spent = spend_by_cat.get(b.category_id, 0)
             percent = (spent / b.amount * 100.0) if b.amount > 0 else 0.0
             status: BudgetStatus
             if percent >= 100:

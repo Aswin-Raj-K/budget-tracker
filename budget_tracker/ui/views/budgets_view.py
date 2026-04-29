@@ -32,9 +32,11 @@ class _BudgetCard(QFrame):
     edit_requested = Signal()
     delete_requested = Signal()
 
-    def __init__(self, usage: BudgetUsage, parent=None):
+    def __init__(self, usage: BudgetUsage, parent=None, *, indent: bool = False):
         super().__init__(parent)
-        self.setProperty("class", "card")
+        # Subcategory cards use a flush surface (no border) and a tighter
+        # interior to read as a child of the parent budget visually.
+        self.setProperty("class", "card-flush" if indent else "card")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._open_context)
@@ -45,7 +47,10 @@ class _BudgetCard(QFrame):
         )
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 16, 20, 18)
+        if indent:
+            layout.setContentsMargins(48, 10, 20, 12)
+        else:
+            layout.setContentsMargins(20, 16, 20, 18)
         layout.setSpacing(8)
 
         layout.addWidget(
@@ -196,12 +201,46 @@ class BudgetsView(BaseView):
         else:
             self._summary_lbl.setText("")
 
+        # Group: top-level budgets first (most-pressing first), each
+        # immediately followed by its subcategory budgets (also sorted by
+        # descending percent). Subcategory budgets whose parent has no
+        # budget land at the bottom under their own indented section.
+        top_level = [u for u in usages if u.category.parent_id is None]
+        subs_by_parent: dict[int, list[BudgetUsage]] = {}
         for u in usages:
-            card = _BudgetCard(u, parent=self._list_host)
-            card.edit_requested.connect(lambda usage=u: self._edit(usage))
-            card.delete_requested.connect(lambda usage=u: self._delete(usage))
-            self._list_layout.addWidget(card)
+            if u.category.parent_id is not None:
+                subs_by_parent.setdefault(u.category.parent_id, []).append(u)
+
+        top_level.sort(key=lambda u: u.percent, reverse=True)
+        rendered_subs: set[int] = set()
+        for parent_usage in top_level:
+            self._add_card(parent_usage, indent=False)
+            children = sorted(
+                subs_by_parent.get(parent_usage.category.id, []),
+                key=lambda u: u.percent,
+                reverse=True,
+            )
+            for child in children:
+                self._add_card(child, indent=True)
+                rendered_subs.add(child.category.id)
+
+        # Orphan subcategory budgets (parent has no budget of its own).
+        orphans = sorted(
+            (u for u in usages
+             if u.category.parent_id is not None and u.category.id not in rendered_subs),
+            key=lambda u: u.percent,
+            reverse=True,
+        )
+        for u in orphans:
+            self._add_card(u, indent=False)
+
         self._list_layout.addStretch(1)
+
+    def _add_card(self, usage: BudgetUsage, *, indent: bool) -> None:
+        card = _BudgetCard(usage, parent=self._list_host, indent=indent)
+        card.edit_requested.connect(lambda u=usage: self._edit(u))
+        card.delete_requested.connect(lambda u=usage: self._delete(u))
+        self._list_layout.addWidget(card)
 
     def _clear_list(self) -> None:
         while self._list_layout.count():

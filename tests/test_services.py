@@ -169,6 +169,63 @@ def test_budget_usage_rolls_subcategory_spend_into_parent(db):
     assert u.status == "under"
 
 
+def test_subcategory_budget_tracks_own_spend_only(db):
+    """A budget on Chicken only counts spend on Chicken, not on the parent."""
+    acct = AccountRepository(db).add(Account(None, "Cash", "cash"))
+    parent = CategoryRepository(db).add(Category(None, "Groceries", "expense", "#F00", "x"))
+    chicken = CategoryRepository(db).add(
+        Category(None, "Chicken", "expense", "#F00", "x", parent_id=parent.id)
+    )
+    BudgetRepository(db).upsert(Budget(None, chicken.id, 5000, "2026-04"))
+
+    tx = TransactionRepository(db)
+    tx.add(Transaction(None, date(2026, 4, 5), "expense", 3000, acct.id, None, chicken.id))
+    tx.add(Transaction(None, date(2026, 4, 10), "expense", 9999, acct.id, None, parent.id))
+
+    usages = BudgetService(db).usage_for_month("2026-04")
+    assert len(usages) == 1
+    assert usages[0].category.name == "Chicken"
+    assert usages[0].spent_amount == 3000   # parent-direct spend is NOT included
+
+
+def test_parent_and_subcategory_budgets_coexist(db):
+    """Parent budget aggregates everything; sub budget tracks only itself.
+
+    A single transaction on the subcategory counts toward both budgets —
+    that's the YNAB-style overlap we explicitly want.
+    """
+    acct = AccountRepository(db).add(Account(None, "Cash", "cash"))
+    parent = CategoryRepository(db).add(Category(None, "Groceries", "expense", "#F00", "x"))
+    chicken = CategoryRepository(db).add(
+        Category(None, "Chicken", "expense", "#F00", "x", parent_id=parent.id)
+    )
+    veg = CategoryRepository(db).add(
+        Category(None, "Vegetables", "expense", "#0F0", "x", parent_id=parent.id)
+    )
+    repo = BudgetRepository(db)
+    repo.upsert(Budget(None, parent.id, 10000, "2026-04"))
+    repo.upsert(Budget(None, chicken.id, 3000, "2026-04"))
+
+    tx = TransactionRepository(db)
+    tx.add(Transaction(None, date(2026, 4, 5), "expense", 3500, acct.id, None, chicken.id))
+    tx.add(Transaction(None, date(2026, 4, 6), "expense", 2000, acct.id, None, veg.id))
+
+    by_name = {u.category.name: u for u in BudgetService(db).usage_for_month("2026-04")}
+
+    # Parent rolls up Chicken + Vegetables.
+    assert by_name["Groceries"].spent_amount == 5500
+    assert by_name["Groceries"].budget_amount == 10000
+    assert by_name["Groceries"].status == "under"
+
+    # Chicken sub-budget tracks its own ₹3500 against ₹3000 cap → over.
+    assert by_name["Chicken"].spent_amount == 3500
+    assert by_name["Chicken"].budget_amount == 3000
+    assert by_name["Chicken"].status == "over"
+
+    # Vegetables has no budget so it doesn't appear separately.
+    assert "Vegetables" not in by_name
+
+
 def test_summary_top_category_rolls_up_to_parent(db):
     """KPI 'Top category' shows the parent name even when spend was on a child."""
     acct = AccountRepository(db).add(Account(None, "Cash", "cash"))
