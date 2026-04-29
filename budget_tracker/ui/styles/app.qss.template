@@ -252,7 +252,34 @@ QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
     background: transparent;
 }
 
-QComboBox::drop-down { border: none; width: 24px; }
+QComboBox::drop-down,
+QDateEdit::drop-down {
+    border: none;
+    width: 24px;
+    background: transparent;
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+}
+/* Custom chevron drawn via the 'border triangle' technique so the arrow
+   matches the rest of the themed UI (no native platform arrow). */
+QComboBox::down-arrow,
+QDateEdit::down-arrow {
+    image: none;
+    width: 0px;
+    height: 0px;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid ${text_muted};
+    margin-right: 10px;
+}
+QComboBox::down-arrow:on,
+QDateEdit::down-arrow:on {
+    border-top-color: ${accent};
+}
+QComboBox::down-arrow:hover,
+QDateEdit::down-arrow:hover {
+    border-top-color: ${text};
+}
 QComboBox QAbstractItemView {
     background-color: ${surface};
     border: 1px solid ${border};
@@ -261,6 +288,55 @@ QComboBox QAbstractItemView {
     selection-color: ${text};
     outline: 0;
     padding: 4px;
+}
+
+/* -------------------- Calendar ----------------- */
+/* QDateEdit uses a QCalendarWidget popup. The default contrast on dark
+   themes leaves week-day labels and adjacent-month dates effectively
+   invisible — these rules give the whole popup a coherent dark look. */
+QCalendarWidget {
+    background-color: ${surface};
+}
+QCalendarWidget QWidget {
+    background-color: ${surface};
+    color: ${text};
+}
+QCalendarWidget QWidget#qt_calendar_navigationbar {
+    background-color: ${surface_alt};
+    border-bottom: 1px solid ${border};
+}
+QCalendarWidget QToolButton {
+    background-color: transparent;
+    color: ${text};
+    padding: 4px 8px;
+    border-radius: 6px;
+    margin: 4px 2px;
+    font-weight: 600;
+}
+QCalendarWidget QToolButton:hover { background-color: ${surface_hover}; }
+QCalendarWidget QToolButton::menu-indicator { image: none; }
+QCalendarWidget QSpinBox {
+    background-color: ${surface};
+    color: ${text};
+    border: 1px solid ${border};
+    border-radius: 6px;
+    padding: 2px 6px;
+}
+QCalendarWidget QMenu {
+    background-color: ${surface};
+    color: ${text};
+    border: 1px solid ${border};
+}
+/* Day grid */
+QCalendarWidget QAbstractItemView:enabled {
+    background-color: ${surface};
+    color: ${text};
+    selection-background-color: ${accent};
+    selection-color: ${accent_text};
+}
+/* Days outside the current month — visible but obviously secondary. */
+QCalendarWidget QAbstractItemView:disabled {
+    color: ${text_subtle};
 }
 
 /* -------------------- Tables ------------------- */
