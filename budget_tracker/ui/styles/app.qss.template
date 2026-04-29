@@ -255,30 +255,20 @@ QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
 QComboBox::drop-down,
 QDateEdit::drop-down {
     border: none;
-    width: 24px;
+    width: 28px;
     background: transparent;
     subcontrol-origin: padding;
     subcontrol-position: top right;
 }
-/* Custom chevron drawn via the 'border triangle' technique so the arrow
-   matches the rest of the themed UI (no native platform arrow). */
+/* Themed chevron — single bundled SVG. The CSS-triangle hack does not
+   work in Qt QSS (transparent borders are not honoured), and the
+   default platform arrow clashes with the dark surfaces. */
 QComboBox::down-arrow,
 QDateEdit::down-arrow {
-    image: none;
-    width: 0px;
-    height: 0px;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-top: 5px solid ${text_muted};
+    image: url(${chevron_down_url});
+    width: 12px;
+    height: 8px;
     margin-right: 10px;
-}
-QComboBox::down-arrow:on,
-QDateEdit::down-arrow:on {
-    border-top-color: ${accent};
-}
-QComboBox::down-arrow:hover,
-QDateEdit::down-arrow:hover {
-    border-top-color: ${text};
 }
 QComboBox QAbstractItemView {
     background-color: ${surface};
