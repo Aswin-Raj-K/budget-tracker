@@ -317,16 +317,39 @@ QCalendarWidget QMenu {
     color: ${text};
     border: 1px solid ${border};
 }
-/* Day grid */
-QCalendarWidget QAbstractItemView:enabled {
+/* Day grid. The global QTableView / QHeaderView rules below would
+   otherwise leak into the calendar — adding 8-12px of cell padding
+   makes the day cells too narrow to fit two-digit dates, and the
+   uppercase/letter-spaced header style overpaints the day-of-week
+   labels. These overrides reset all of that for descendants of
+   QCalendarWidget. */
+QCalendarWidget QAbstractItemView {
+    border: none;
+    border-radius: 0;
     background-color: ${surface};
     color: ${text};
     selection-background-color: ${accent};
     selection-color: ${accent_text};
+    gridline-color: transparent;
 }
-/* Days outside the current month — visible but obviously secondary. */
-QCalendarWidget QAbstractItemView:disabled {
-    color: ${text_subtle};
+QCalendarWidget QAbstractItemView::item,
+QCalendarWidget QAbstractItemView::item:selected {
+    padding: 0;       /* Let Qt size cells from font metrics alone. */
+}
+QCalendarWidget QAbstractItemView:enabled  { color: ${text}; }
+QCalendarWidget QAbstractItemView:disabled { color: ${text_subtle}; }
+
+/* Day-of-week header row inside the calendar grid. */
+QCalendarWidget QHeaderView,
+QCalendarWidget QHeaderView::section {
+    background-color: ${surface};
+    color: ${text_muted};
+    border: none;
+    padding: 4px 0;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
 }
 
 /* -------------------- Tables ------------------- */
