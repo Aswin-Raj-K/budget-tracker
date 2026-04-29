@@ -53,9 +53,12 @@ class _BudgetCard(QFrame):
             layout.setContentsMargins(20, 16, 20, 18)
         layout.setSpacing(8)
 
+        # Subcategory cards get a thin "│" guide ahead of their name to
+        # match the dropdown / Settings hierarchy treatment.
+        display_name = f"│  {usage.category.name}" if indent else usage.category.name
         layout.addWidget(
             ProgressRow(
-                usage.category.name,
+                display_name,
                 amount_label,
                 usage.percent,
                 status=usage.status,

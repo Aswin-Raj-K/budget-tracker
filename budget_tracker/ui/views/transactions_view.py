@@ -216,14 +216,34 @@ class TransactionsView(BaseView):
         self._account_filter.setCurrentIndex(idx if idx >= 0 else 0)
         self._account_filter.blockSignals(False)
 
-        # Categories
+        # Categories — hierarchical: each parent followed by its
+        # subcategories, indented with a thin vertical guide.
         prev_cat = self._category_filter.currentData() if self._category_filter.count() else ALL
         self._category_filter.blockSignals(True)
         self._category_filter.clear()
         self._category_filter.addItem("All categories", ALL)
         self._cached_categories = self._category_repo.list()
+
+        children_by_parent: dict[int, list[Category]] = {}
+        top_level: list[Category] = []
         for c in self._cached_categories:
-            self._category_filter.addItem(c.name, c.id)
+            if c.parent_id is None:
+                top_level.append(c)
+            else:
+                children_by_parent.setdefault(c.parent_id, []).append(c)
+        top_level.sort(key=lambda c: (c.kind, c.name.lower()))
+        rendered: set[int] = set()
+        for top in top_level:
+            self._category_filter.addItem(top.name, top.id)
+            rendered.add(top.id)
+            for kid in sorted(children_by_parent.get(top.id, []), key=lambda c: c.name.lower()):
+                self._category_filter.addItem(f"   │  {kid.name}", kid.id)
+                rendered.add(kid.id)
+        # Orphan subcategories (parent missing/archived).
+        for c in self._cached_categories:
+            if c.id not in rendered:
+                self._category_filter.addItem(c.name, c.id)
+
         idx = self._category_filter.findData(prev_cat)
         self._category_filter.setCurrentIndex(idx if idx >= 0 else 0)
         self._category_filter.blockSignals(False)
@@ -278,11 +298,16 @@ class TransactionsView(BaseView):
             self._table.setItem(row, 1, QTableWidgetItem(acc.name if acc else "—"))
 
             cat = cats_by_id.get(tx.category_id) if tx.category_id else None
-            cat_item = QTableWidgetItem(
-                cat.name if cat else
-                "Transfer" if tx.kind == "transfer" else
-                "Uncategorised"
-            )
+            if cat is None:
+                label = "Transfer" if tx.kind == "transfer" else "Uncategorised"
+            elif cat.parent_id is not None:
+                # Subcategory — render with its parent for context, e.g.
+                # "Groceries / Chicken".
+                parent = cats_by_id.get(cat.parent_id)
+                label = f"{parent.name} / {cat.name}" if parent else cat.name
+            else:
+                label = cat.name
+            cat_item = QTableWidgetItem(label)
             if cat is not None:
                 cat_item.setForeground(QBrush(QColor(cat.color)))
             self._table.setItem(row, 2, cat_item)
