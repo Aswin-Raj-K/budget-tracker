@@ -242,6 +242,16 @@ QPlainTextEdit:focus, QTextEdit:focus {
 }
 QLineEdit:disabled, QComboBox:disabled { color: ${text_subtle}; }
 
+/* Hide the up/down buttons on numeric inputs — keyboard arrows and the
+   mouse wheel still work, but the chrome stays clean. */
+QSpinBox::up-button, QSpinBox::down-button,
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
+    width: 0;
+    height: 0;
+    border: none;
+    background: transparent;
+}
+
 QComboBox::drop-down { border: none; width: 24px; }
 QComboBox QAbstractItemView {
     background-color: ${surface};
