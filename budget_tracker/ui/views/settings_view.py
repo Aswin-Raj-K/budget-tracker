@@ -280,35 +280,37 @@ class SettingsView(BaseView):
     # ---------- row factories ----------
 
     def _account_row(self, a: Account) -> QFrame:
-        # Parent to the section card so the row never exists as an unparented
-        # top-level window (which can briefly flash on Windows).
+        # Parent every widget at construction. A parentless QWidget — even a
+        # tiny QLabel or QPushButton — is technically a top-level window
+        # until reparented; on some Windows display configurations Qt briefly
+        # registers a native HWND for it which flashes a small grey box.
         row = QFrame(self._accounts_card)
         row.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 4, 0, 4)
         layout.setSpacing(10)
 
-        name = QLabel(a.name)
+        name = QLabel(a.name, row)
         name.setProperty("class", "h3")
         if a.archived:
             name.setStyleSheet("color: #6B6B7A;")
 
-        type_lbl = QLabel(_TYPE_LABELS.get(a.type, a.type))
+        type_lbl = QLabel(_TYPE_LABELS.get(a.type, a.type), row)
         type_lbl.setProperty("class", "chip")
 
-        balance = QLabel(money.format_amount(a.opening_balance))
+        balance = QLabel(money.format_amount(a.opening_balance), row)
         balance.setProperty("class", "muted")
         balance.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
-        archived_chip = QLabel("Archived")
+        archived_chip = QLabel("Archived", row)
         archived_chip.setProperty("class", "chip")
         archived_chip.setVisible(a.archived)
 
-        edit = QPushButton("Edit")
+        edit = QPushButton("Edit", row)
         edit.setProperty("class", "ghost")
         edit.clicked.connect(lambda _checked=False, acct=a: self._edit_account(acct))
 
-        archive = QPushButton("Restore" if a.archived else "Archive")
+        archive = QPushButton("Restore" if a.archived else "Archive", row)
         archive.setProperty("class", "ghost")
         archive.clicked.connect(lambda _checked=False, acct=a: self._toggle_account_archive(acct))
 
@@ -328,39 +330,39 @@ class SettingsView(BaseView):
         layout.setSpacing(10)
 
         if indent:
-            tree_glyph = QLabel("·")
+            tree_glyph = QLabel("·", row)
             tree_glyph.setProperty("class", "subtle")
             tree_glyph.setFixedWidth(10)
             layout.addWidget(tree_glyph)
 
-        layout.addWidget(ColorDot(c.color, size=8 if indent else 10))
-        icon_lbl = QLabel(c.icon)
+        layout.addWidget(ColorDot(c.color, size=8 if indent else 10, parent=row))
+        icon_lbl = QLabel(c.icon, row)
         icon_lbl.setFixedWidth(20)
         layout.addWidget(icon_lbl)
 
-        name = QLabel(c.name)
+        name = QLabel(c.name, row)
         name.setProperty("class", "h3" if not indent else "muted")
         if c.archived:
             name.setStyleSheet("color: #6B6B7A;")
         layout.addWidget(name)
 
-        kind_lbl = QLabel(c.kind.capitalize())
+        kind_lbl = QLabel(c.kind.capitalize(), row)
         kind_lbl.setProperty("class", "chip")
         kind_lbl.setVisible(not indent)
         layout.addWidget(kind_lbl)
 
         if c.archived:
-            archived_chip = QLabel("Archived")
+            archived_chip = QLabel("Archived", row)
             archived_chip.setProperty("class", "chip")
             layout.addWidget(archived_chip)
 
         layout.addStretch(1)
 
-        edit = QPushButton("Edit")
+        edit = QPushButton("Edit", row)
         edit.setProperty("class", "ghost")
         edit.clicked.connect(lambda _checked=False, cat=c: self._edit_category(cat))
 
-        archive = QPushButton("Restore" if c.archived else "Archive")
+        archive = QPushButton("Restore" if c.archived else "Archive", row)
         archive.setProperty("class", "ghost")
         archive.clicked.connect(lambda _checked=False, cat=c: self._toggle_category_archive(cat))
 
