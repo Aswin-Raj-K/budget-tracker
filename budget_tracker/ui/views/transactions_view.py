@@ -33,6 +33,34 @@ from budget_tracker.ui.views.base import BaseView
 _MONTHS = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
+# A sane sentinel for "no filter" — Qt's default minimumDate is 1752-09-14
+# (the British Gregorian-calendar switch), where the popup opens in a
+# month that's missing 11 days. Use 1990-01-01 instead so the calendar is
+# always sensible if anything else falls back to the minimum.
+_FILTER_MIN = QDate(1990, 1, 1)
+
+
+class _FilterDateEdit(QDateEdit):
+    """QDateEdit used as an optional date filter.
+
+    The minimum date doubles as a "no filter" sentinel and the
+    setSpecialValueText placeholder ("From"/"To") shows in the field
+    until the user picks a real date. The first time the user clicks
+    the field to open the calendar, jump to today so the popup lands
+    on the current month rather than on the 1990-01 sentinel.
+    """
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setMinimumDate(_FILTER_MIN)
+        self.setCalendarPopup(True)
+        self.setDate(_FILTER_MIN)
+
+    def mousePressEvent(self, ev) -> None:  # noqa: N802 (Qt naming)
+        if self.date() == self.minimumDate():
+            self.setDate(QDate.currentDate())
+        super().mousePressEvent(ev)
+
 ALL = -1  # sentinel value for "no filter"
 
 
@@ -96,19 +124,15 @@ class TransactionsView(BaseView):
         self._kind_filter.currentIndexChanged.connect(self.refresh)
         bar.addWidget(self._kind_filter)
 
-        self._from_date = QDateEdit()
-        self._from_date.setCalendarPopup(True)
+        self._from_date = _FilterDateEdit()
         self._from_date.setDisplayFormat("dd MMM yy")
         self._from_date.setSpecialValueText("From")
-        self._from_date.setDate(self._from_date.minimumDate())  # acts as "no filter"
         self._from_date.dateChanged.connect(self.refresh)
         bar.addWidget(self._from_date)
 
-        self._to_date = QDateEdit()
-        self._to_date.setCalendarPopup(True)
+        self._to_date = _FilterDateEdit()
         self._to_date.setDisplayFormat("dd MMM yy")
         self._to_date.setSpecialValueText("To")
-        self._to_date.setDate(self._to_date.minimumDate())
         self._to_date.dateChanged.connect(self.refresh)
         bar.addWidget(self._to_date)
 
