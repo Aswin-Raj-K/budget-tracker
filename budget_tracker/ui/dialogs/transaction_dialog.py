@@ -179,8 +179,8 @@ class TransactionDialog(QDialog):
 
     def _populate_categories(self, kind: TxKind) -> None:
         """Hierarchical category list: each top-level entry is followed by
-        its children indented with a leading bullet so users can pick the
-        most specific category."""
+        its children indented with a thin vertical guide so users can pick
+        the most specific category."""
         self._category.clear()
         if kind == "transfer":
             return
@@ -199,7 +199,7 @@ class TransactionDialog(QDialog):
             self._category.addItem(top.name, top.id)
             kids = sorted(children_by_parent.get(top.id, []), key=lambda c: c.name.lower())
             for kid in kids:
-                self._category.addItem(f"   · {kid.name}", kid.id)
+                self._category.addItem(f"   │  {kid.name}", kid.id)
 
         # Append any orphans whose parent isn't in the same-kind set (should
         # be rare, but keep them reachable rather than hidden).

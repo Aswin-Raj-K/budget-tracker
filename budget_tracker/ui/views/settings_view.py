@@ -330,7 +330,7 @@ class SettingsView(BaseView):
         layout.setSpacing(10)
 
         if indent:
-            tree_glyph = QLabel("·", row)
+            tree_glyph = QLabel("│", row)
             tree_glyph.setProperty("class", "subtle")
             tree_glyph.setFixedWidth(10)
             layout.addWidget(tree_glyph)

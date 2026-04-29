@@ -140,7 +140,7 @@ class BudgetDialog(QDialog):
             for kid in sorted(children_by_parent.get(top.id, []), key=lambda c: c.name.lower()):
                 if kid.id in used:
                     continue
-                self._category.addItem(f"   · {kid.name}", kid.id)
+                self._category.addItem(f"   │  {kid.name}", kid.id)
 
         if self._category.count() == 0:
             QMessageBox.information(
