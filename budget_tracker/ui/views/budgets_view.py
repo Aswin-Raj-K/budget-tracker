@@ -26,65 +26,64 @@ from budget_tracker.ui.views.base import BaseView
 from budget_tracker.ui.widgets.progress_row import ProgressRow
 
 
-class _BudgetCard(QFrame):
-    """Clickable card row for a single budget."""
+def _status_footer(usage: BudgetUsage) -> QLabel:
+    if usage.status == "over":
+        text = f"Over budget by {money.format_amount(-usage.remaining)}"
+        color = "#F87171"
+    elif usage.status == "warning":
+        text = f"{money.format_amount(usage.remaining)} left  ·  {usage.percent:.0f}% used"
+        color = "#FBBF24"
+    else:
+        text = f"{money.format_amount(usage.remaining)} left  ·  {usage.percent:.0f}% used"
+        color = ""
+    lbl = QLabel(text)
+    lbl.setProperty("class", "subtle")
+    if color:
+        lbl.setStyleSheet(f"color: {color};")
+    return lbl
+
+
+class _BudgetRow(QFrame):
+    """A single budget's progress row. Lives inside a _BudgetCard.
+
+    Emits edit / delete when the user double-clicks or uses the right-click
+    menu — letting the parent card route the action to the correct
+    underlying budget.
+    """
 
     edit_requested = Signal()
     delete_requested = Signal()
 
-    def __init__(self, usage: BudgetUsage, parent=None, *, indent: bool = False):
+    def __init__(
+        self,
+        usage: BudgetUsage,
+        parent=None,
+        *,
+        indent: bool = False,
+    ) -> None:
         super().__init__(parent)
-        # Subcategory cards use a flush surface (no border) and a tighter
-        # interior to read as a child of the parent budget visually.
-        self.setProperty("class", "card-flush" if indent else "card")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._open_context)
+
+        layout = QVBoxLayout(self)
+        # Children rows get a left indent so they read as nested without
+        # any tree glyph cluttering the look.
+        layout.setContentsMargins(28 if indent else 0, 0, 0, 0)
+        layout.setSpacing(4)
 
         amount_label = (
             f"{money.format_amount(usage.spent_amount, with_symbol=False)}"
             f" / {money.format_amount(usage.budget_amount)}"
         )
-
-        layout = QVBoxLayout(self)
-        if indent:
-            layout.setContentsMargins(48, 10, 20, 12)
-        else:
-            layout.setContentsMargins(20, 16, 20, 18)
-        layout.setSpacing(8)
-
-        # Subcategory cards get a thin "│" guide ahead of their name to
-        # match the dropdown / Settings hierarchy treatment.
-        display_name = f"│  {usage.category.name}" if indent else usage.category.name
-        layout.addWidget(
-            ProgressRow(
-                display_name,
-                amount_label,
-                usage.percent,
-                status=usage.status,
-                color=usage.category.color,
-            )
-        )
-
-        # Status footer
-        if usage.status == "over":
-            footer_text = f"Over budget by {money.format_amount(-usage.remaining)}"
-            footer_color = "#F87171"
-        elif usage.status == "warning":
-            footer_text = (
-                f"{money.format_amount(usage.remaining)} left  ·  {usage.percent:.0f}% used"
-            )
-            footer_color = "#FBBF24"
-        else:
-            footer_text = (
-                f"{money.format_amount(usage.remaining)} left  ·  {usage.percent:.0f}% used"
-            )
-            footer_color = ""
-        footer = QLabel(footer_text)
-        footer.setProperty("class", "subtle")
-        if footer_color:
-            footer.setStyleSheet(f"color: {footer_color};")
-        layout.addWidget(footer)
+        layout.addWidget(ProgressRow(
+            usage.category.name,
+            amount_label,
+            usage.percent,
+            status=usage.status,
+            color=usage.category.color,
+        ))
+        layout.addWidget(_status_footer(usage))
 
     def mouseDoubleClickEvent(self, ev) -> None:  # noqa: N802 (Qt naming)
         if ev.button() == Qt.MouseButton.LeftButton:
@@ -101,6 +100,39 @@ class _BudgetCard(QFrame):
         menu.addSeparator()
         menu.addAction(delete)
         menu.exec(self.mapToGlobal(pos))
+
+
+class _BudgetCard(QFrame):
+    """One bordered card containing a primary budget plus, optionally,
+    nested subcategory budgets. The whole group reads as a single visual
+    unit while each row inside remains independently editable."""
+
+    edit_requested = Signal(BudgetUsage)
+    delete_requested = Signal(BudgetUsage)
+
+    def __init__(
+        self,
+        primary: BudgetUsage,
+        children: list[BudgetUsage] | tuple[BudgetUsage, ...] = (),
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.setProperty("class", "card")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 16, 20, 18)
+        layout.setSpacing(12)
+
+        primary_row = _BudgetRow(primary, parent=self, indent=False)
+        primary_row.edit_requested.connect(lambda u=primary: self.edit_requested.emit(u))
+        primary_row.delete_requested.connect(lambda u=primary: self.delete_requested.emit(u))
+        layout.addWidget(primary_row)
+
+        for child in children:
+            child_row = _BudgetRow(child, parent=self, indent=True)
+            child_row.edit_requested.connect(lambda u=child: self.edit_requested.emit(u))
+            child_row.delete_requested.connect(lambda u=child: self.delete_requested.emit(u))
+            layout.addWidget(child_row)
 
 
 class BudgetsView(BaseView):
@@ -204,10 +236,12 @@ class BudgetsView(BaseView):
         else:
             self._summary_lbl.setText("")
 
-        # Group: top-level budgets first (most-pressing first), each
-        # immediately followed by its subcategory budgets (also sorted by
-        # descending percent). Subcategory budgets whose parent has no
-        # budget land at the bottom under their own indented section.
+        # Group: each top-level budget gets a card containing its own
+        # progress row plus its subcategory budgets nested inside as
+        # indented rows. Cards are sorted by the parent's % used so the
+        # most-pressing groups float to the top. A subcategory budget
+        # whose parent has no budget gets its own standalone card at the
+        # bottom (still in % order).
         top_level = [u for u in usages if u.category.parent_id is None]
         subs_by_parent: dict[int, list[BudgetUsage]] = {}
         for u in usages:
@@ -216,18 +250,18 @@ class BudgetsView(BaseView):
 
         top_level.sort(key=lambda u: u.percent, reverse=True)
         rendered_subs: set[int] = set()
-        for parent_usage in top_level:
-            self._add_card(parent_usage, indent=False)
+        for primary in top_level:
             children = sorted(
-                subs_by_parent.get(parent_usage.category.id, []),
+                subs_by_parent.get(primary.category.id, []),
                 key=lambda u: u.percent,
                 reverse=True,
             )
-            for child in children:
-                self._add_card(child, indent=True)
-                rendered_subs.add(child.category.id)
+            for ch in children:
+                rendered_subs.add(ch.category.id)
+            self._add_card(primary, children)
 
-        # Orphan subcategory budgets (parent has no budget of its own).
+        # Orphan subcategory budgets (parent has no budget of its own) —
+        # render each one alone in its own card.
         orphans = sorted(
             (u for u in usages
              if u.category.parent_id is not None and u.category.id not in rendered_subs),
@@ -235,14 +269,18 @@ class BudgetsView(BaseView):
             reverse=True,
         )
         for u in orphans:
-            self._add_card(u, indent=False)
+            self._add_card(u, ())
 
         self._list_layout.addStretch(1)
 
-    def _add_card(self, usage: BudgetUsage, *, indent: bool) -> None:
-        card = _BudgetCard(usage, parent=self._list_host, indent=indent)
-        card.edit_requested.connect(lambda u=usage: self._edit(u))
-        card.delete_requested.connect(lambda u=usage: self._delete(u))
+    def _add_card(
+        self,
+        primary: BudgetUsage,
+        children: list[BudgetUsage] | tuple[BudgetUsage, ...],
+    ) -> None:
+        card = _BudgetCard(primary, children=children, parent=self._list_host)
+        card.edit_requested.connect(self._edit)
+        card.delete_requested.connect(self._delete)
         self._list_layout.addWidget(card)
 
     def _clear_list(self) -> None:
