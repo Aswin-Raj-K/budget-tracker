@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QApplication, QDialog
 
 from budget_tracker.config import APP_DISPLAY_NAME, ORG_NAME
 from budget_tracker.core.db import init_db
+from budget_tracker.services.db_location_service import cleanup_legacy_db_file
 from budget_tracker.services.seeder import seed_default_categories_if_empty
 from budget_tracker.services.settings_service import SettingsService
 from budget_tracker.ui.dialogs.welcome_dialog import WelcomeDialog
@@ -17,6 +18,11 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_DISPLAY_NAME)
     app.setOrganizationName(ORG_NAME)
+
+    # If the user moved the DB last session, the previous file may still
+    # be on disk (the move ran while the connection was open and locked
+    # it on Windows). Clean it up before opening the new one.
+    cleanup_legacy_db_file()
 
     conn = init_db()
     seed_default_categories_if_empty(conn)

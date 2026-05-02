@@ -27,6 +27,7 @@ from budget_tracker.core.models import Account, Category
 from budget_tracker.core.repositories.accounts import AccountRepository
 from budget_tracker.core.repositories.categories import CategoryRepository
 from budget_tracker.services.account_service import AccountService
+from budget_tracker.services.db_location_service import move_database
 from budget_tracker.services.settings_service import SettingsService
 from budget_tracker.ui.dialogs.account_dialog import AccountDialog
 from budget_tracker.ui.dialogs.category_dialog import CategoryDialog
@@ -155,27 +156,47 @@ class SettingsView(BaseView):
         card = SectionCard("Data", parent=parent)
         body = card.body_layout()
 
-        path_lbl = QLabel(str(db_path()))
-        path_lbl.setProperty("class", "subtle")
-        path_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        body.addWidget(path_lbl)
+        location_label = QLabel("Database location", card)
+        location_label.setProperty("class", "h3")
+        body.addWidget(location_label)
 
-        row = QHBoxLayout()
-        row.setSpacing(8)
-        export = QPushButton("Export database…")
-        export.setProperty("class", "secondary")
-        export.clicked.connect(self._export_db)
-        restore = QPushButton("Import / restore…")
-        restore.setProperty("class", "secondary")
-        restore.clicked.connect(self._import_db)
-        open_folder = QPushButton("Open data folder")
+        # Refreshable path label — set in refresh() so it stays accurate
+        # if the user moves the DB without restarting (we still prompt for
+        # restart, but this keeps the label honest in the meantime).
+        self._db_path_lbl = QLabel(str(db_path()), card)
+        self._db_path_lbl.setProperty("class", "subtle")
+        self._db_path_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._db_path_lbl.setWordWrap(True)
+        body.addWidget(self._db_path_lbl)
+
+        location_row = QHBoxLayout()
+        location_row.setSpacing(8)
+        move = QPushButton("Move database…", card)
+        move.setProperty("class", "secondary")
+        move.setToolTip("Choose a new folder to keep your database in (e.g. OneDrive). The app will close after moving.")
+        move.clicked.connect(self._move_db)
+        open_folder = QPushButton("Open data folder", card)
         open_folder.setProperty("class", "ghost")
         open_folder.clicked.connect(self._open_data_folder)
-        row.addWidget(export)
-        row.addWidget(restore)
-        row.addWidget(open_folder)
-        row.addStretch(1)
-        body.addLayout(row)
+        location_row.addWidget(move)
+        location_row.addWidget(open_folder)
+        location_row.addStretch(1)
+        body.addLayout(location_row)
+
+        body.addSpacing(6)
+
+        backup_row = QHBoxLayout()
+        backup_row.setSpacing(8)
+        export = QPushButton("Export database…", card)
+        export.setProperty("class", "secondary")
+        export.clicked.connect(self._export_db)
+        restore = QPushButton("Import / restore…", card)
+        restore.setProperty("class", "secondary")
+        restore.clicked.connect(self._import_db)
+        backup_row.addWidget(export)
+        backup_row.addWidget(restore)
+        backup_row.addStretch(1)
+        body.addLayout(backup_row)
         return card
 
     def _build_about_card(self, parent) -> SectionCard:
@@ -445,6 +466,41 @@ class SettingsView(BaseView):
         self._populate_categories()
 
     # ---- data actions ----
+
+    def _move_db(self) -> None:
+        target_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Choose a folder to keep the database in",
+            str(db_path().parent),
+            QFileDialog.Option.ShowDirsOnly,
+        )
+        if not target_dir:
+            return
+
+        try:
+            new_path = move_database(target_dir)
+        except (FileExistsError, FileNotFoundError, ValueError) as e:
+            QMessageBox.warning(self, "Couldn't move database", str(e))
+            return
+        except OSError as e:
+            QMessageBox.critical(self, "Move failed", str(e))
+            return
+
+        # Reflect the new path immediately, even though we ask the user to
+        # restart — until restart the live connection still points at the
+        # old file.
+        self._db_path_lbl.setText(str(new_path))
+
+        info = QMessageBox(self)
+        info.setWindowTitle("Database moved")
+        info.setIcon(QMessageBox.Icon.Information)
+        info.setText(
+            f"Your database has been moved to:\n{new_path}\n\n"
+            "The app will now close — relaunch to start using the new location."
+        )
+        info.setStandardButtons(QMessageBox.StandardButton.Ok)
+        info.exec()
+        QApplication.instance().quit()
 
     def _export_db(self) -> None:
         target, _ = QFileDialog.getSaveFileName(
