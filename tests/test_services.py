@@ -27,6 +27,7 @@ from budget_tracker.services._month import (
     shift_month,
     to_month_key,
 )
+from budget_tracker.services.account_service import AccountService
 from budget_tracker.services.budget_service import BudgetService
 from budget_tracker.services.goal_service import GoalService
 from budget_tracker.services.settings_service import SettingsService
@@ -167,6 +168,59 @@ def test_budget_usage_rolls_subcategory_spend_into_parent(db):
     assert u.spent_amount == 7000      # 3000 + 4000
     assert u.percent == pytest.approx(70.0)
     assert u.status == "under"
+
+
+# ---- account service ----
+
+def test_account_balance_starts_at_opening_balance(db):
+    a = AccountRepository(db).add(Account(None, "Cash", "cash", opening_balance=15000))
+    assert AccountService(db).balance_for(a.id) == 15000
+
+
+def test_account_balance_with_income_and_expense(db):
+    a = AccountRepository(db).add(Account(None, "Cash", "cash", opening_balance=10000))
+    tx = TransactionRepository(db)
+    tx.add(Transaction(None, date(2026, 5, 1), "income", 5000, a.id))
+    tx.add(Transaction(None, date(2026, 5, 2), "expense", 2000, a.id))
+    # 10000 + 5000 - 2000 = 13000
+    assert AccountService(db).balance_for(a.id) == 13000
+
+
+def test_account_balance_for_transfers(db):
+    src = AccountRepository(db).add(Account(None, "Checking", "checking", opening_balance=20000))
+    dst = AccountRepository(db).add(Account(None, "Savings",  "savings",  opening_balance=0))
+    tx = TransactionRepository(db)
+    tx.add(Transaction(
+        None, date(2026, 5, 5), "transfer", 7500,
+        account_id=src.id, transfer_account_id=dst.id,
+    ))
+    balances = AccountService(db).balances()
+    assert balances[src.id] == 12500    # 20000 - 7500
+    assert balances[dst.id] == 7500     # 0 + 7500
+
+
+def test_account_balance_combined(db):
+    """Income + expense + outgoing transfer + incoming transfer all in one
+    account, plus the matching counterparty for the transfers."""
+    main = AccountRepository(db).add(Account(None, "Main", "checking", opening_balance=10000))
+    other = AccountRepository(db).add(Account(None, "Other", "savings"))
+    tx = TransactionRepository(db)
+    tx.add(Transaction(None, date(2026, 5, 1), "income",   3000, main.id))
+    tx.add(Transaction(None, date(2026, 5, 2), "expense",  500,  main.id))
+    # Out from main → other
+    tx.add(Transaction(None, date(2026, 5, 3), "transfer", 1000, main.id, transfer_account_id=other.id))
+    # In to main from other
+    tx.add(Transaction(None, date(2026, 5, 4), "transfer", 200,  other.id, transfer_account_id=main.id))
+
+    balances = AccountService(db).balances()
+    # main: 10000 + 3000 - 500 - 1000 + 200 = 11700
+    assert balances[main.id] == 11700
+    # other: 0 + 1000 - 200 = 800
+    assert balances[other.id] == 800
+
+
+def test_account_balance_for_unknown_account(db):
+    assert AccountService(db).balance_for(9999) == 0
 
 
 def test_subcategory_budget_tracks_own_spend_only(db):

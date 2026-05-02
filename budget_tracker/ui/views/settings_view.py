@@ -26,6 +26,7 @@ from budget_tracker.core import money
 from budget_tracker.core.models import Account, Category
 from budget_tracker.core.repositories.accounts import AccountRepository
 from budget_tracker.core.repositories.categories import CategoryRepository
+from budget_tracker.services.account_service import AccountService
 from budget_tracker.services.settings_service import SettingsService
 from budget_tracker.ui.dialogs.account_dialog import AccountDialog
 from budget_tracker.ui.dialogs.category_dialog import CategoryDialog
@@ -52,6 +53,7 @@ class SettingsView(BaseView):
         super().__init__(conn, parent)
         self.settings = SettingsService(conn)
         self.account_repo = AccountRepository(conn)
+        self.account_service = AccountService(conn)
         self.category_repo = CategoryRepository(conn)
         self._build()
         self.refresh()
@@ -236,8 +238,9 @@ class SettingsView(BaseView):
             empty.setWordWrap(True)
             body.addWidget(empty)
             return
+        balances = self.account_service.balances()
         for a in accounts:
-            body.addWidget(self._account_row(a))
+            body.addWidget(self._account_row(a, balances.get(a.id, a.opening_balance)))
 
     def _populate_categories(self) -> None:
         body = self._categories_card.body_layout()
@@ -279,7 +282,7 @@ class SettingsView(BaseView):
 
     # ---------- row factories ----------
 
-    def _account_row(self, a: Account) -> QFrame:
+    def _account_row(self, a: Account, running_balance: int) -> QFrame:
         # Parent every widget at construction. A parentless QWidget — even a
         # tiny QLabel or QPushButton — is technically a top-level window
         # until reparented; on some Windows display configurations Qt briefly
@@ -298,9 +301,27 @@ class SettingsView(BaseView):
         type_lbl = QLabel(_TYPE_LABELS.get(a.type, a.type), row)
         type_lbl.setProperty("class", "chip")
 
-        balance = QLabel(money.format_amount(a.opening_balance), row)
-        balance.setProperty("class", "muted")
+        # Right-aligned balance column: running balance on top, opening
+        # balance underneath as a subtle hint (only when non-zero so the
+        # row stays compact for fresh accounts).
+        balance_box = QFrame(row)
+        balance_layout = QVBoxLayout(balance_box)
+        balance_layout.setContentsMargins(0, 0, 0, 0)
+        balance_layout.setSpacing(0)
+
+        balance = QLabel(money.format_amount(running_balance), balance_box)
+        balance.setProperty("class", "h3")
         balance.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        balance_layout.addWidget(balance)
+
+        if a.opening_balance:
+            opening_lbl = QLabel(
+                f"Opening {money.format_amount(a.opening_balance)}",
+                balance_box,
+            )
+            opening_lbl.setProperty("class", "subtle")
+            opening_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            balance_layout.addWidget(opening_lbl)
 
         archived_chip = QLabel("Archived", row)
         archived_chip.setProperty("class", "chip")
@@ -318,7 +339,7 @@ class SettingsView(BaseView):
         layout.addWidget(type_lbl)
         layout.addWidget(archived_chip)
         layout.addStretch(1)
-        layout.addWidget(balance)
+        layout.addWidget(balance_box)
         layout.addWidget(edit)
         layout.addWidget(archive)
         return row
