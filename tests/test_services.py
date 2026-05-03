@@ -223,6 +223,76 @@ def test_account_balance_for_unknown_account(db):
     assert AccountService(db).balance_for(9999) == 0
 
 
+# ---- credit-card balance (liability semantics) ----
+
+def test_credit_card_expense_increases_debt(db):
+    card = AccountRepository(db).add(Account(None, "Visa", "credit", opening_balance=0))
+    tx = TransactionRepository(db)
+    tx.add(Transaction(None, date(2026, 5, 1), "expense", 10000, card.id))
+    tx.add(Transaction(None, date(2026, 5, 2), "expense", 5000, card.id))
+    # Two expenses of 100 + 50 → owe 150 on the card.
+    assert AccountService(db).balance_for(card.id) == 15000
+
+
+def test_credit_card_opening_balance_is_existing_debt(db):
+    """The opening balance on a credit card is the debt you already owe."""
+    card = AccountRepository(db).add(Account(None, "Visa", "credit", opening_balance=50000))
+    tx = TransactionRepository(db)
+    tx.add(Transaction(None, date(2026, 5, 1), "expense", 10000, card.id))
+    # Started at 500 owed, spent another 100 → owe 600.
+    assert AccountService(db).balance_for(card.id) == 60000
+
+
+def test_credit_card_income_reduces_debt(db):
+    """Cashback / refunds posted as 'income' on the card reduce what's owed."""
+    card = AccountRepository(db).add(Account(None, "Visa", "credit", opening_balance=10000))
+    tx = TransactionRepository(db)
+    tx.add(Transaction(None, date(2026, 5, 5), "income", 2000, card.id))
+    # Owed 100, got 20 cashback → owe 80.
+    assert AccountService(db).balance_for(card.id) == 8000
+
+
+def test_credit_card_payment_from_checking_reduces_debt(db):
+    """Transfer from checking → credit card pays down the card."""
+    checking = AccountRepository(db).add(Account(None, "Bank", "checking", opening_balance=50000))
+    card = AccountRepository(db).add(Account(None, "Visa", "credit", opening_balance=10000))
+    tx = TransactionRepository(db)
+    tx.add(Transaction(
+        None, date(2026, 5, 10), "transfer", 7000,
+        account_id=checking.id, transfer_account_id=card.id,
+    ))
+    balances = AccountService(db).balances()
+    assert balances[checking.id] == 43000   # 500 − 70 paid
+    assert balances[card.id] == 3000        # 100 owed → 30 owed
+
+
+def test_credit_card_overpayment_goes_negative(db):
+    """Paying more than you owe leaves a credit (negative debt) on the card."""
+    checking = AccountRepository(db).add(Account(None, "Bank", "checking", opening_balance=50000))
+    card = AccountRepository(db).add(Account(None, "Visa", "credit", opening_balance=2000))
+    tx = TransactionRepository(db)
+    tx.add(Transaction(
+        None, date(2026, 5, 10), "transfer", 5000,
+        account_id=checking.id, transfer_account_id=card.id,
+    ))
+    balances = AccountService(db).balances()
+    assert balances[card.id] == -3000       # paid 50 against 20 owed → 30 credit
+
+
+def test_credit_card_cash_advance_increases_debt(db):
+    """Transfer FROM card → checking is a cash advance and grows the debt."""
+    checking = AccountRepository(db).add(Account(None, "Bank", "checking", opening_balance=10000))
+    card = AccountRepository(db).add(Account(None, "Visa", "credit", opening_balance=0))
+    tx = TransactionRepository(db)
+    tx.add(Transaction(
+        None, date(2026, 5, 12), "transfer", 5000,
+        account_id=card.id, transfer_account_id=checking.id,
+    ))
+    balances = AccountService(db).balances()
+    assert balances[checking.id] == 15000   # 100 + 50 advanced
+    assert balances[card.id] == 5000        # 0 → 50 owed
+
+
 def test_subcategory_budget_tracks_own_spend_only(db):
     """A budget on Chicken only counts spend on Chicken, not on the parent."""
     acct = AccountRepository(db).add(Account(None, "Cash", "cash"))
