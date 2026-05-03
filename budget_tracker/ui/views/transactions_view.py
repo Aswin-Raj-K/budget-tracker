@@ -27,6 +27,7 @@ from budget_tracker.core.models import Account, Category, Transaction
 from budget_tracker.core.repositories.accounts import AccountRepository
 from budget_tracker.core.repositories.categories import CategoryRepository
 from budget_tracker.core.repositories.transactions import TransactionRepository
+from budget_tracker.services.selection_summary import SelectionSummary, summarize
 from budget_tracker.ui.dialogs.transaction_dialog import TransactionDialog
 from budget_tracker.ui.views.base import BaseView
 
@@ -66,6 +67,56 @@ ALL = -1  # sentinel value for "no filter"
 
 def _fmt_date(d: date) -> str:
     return f"{d.day:02d} {_MONTHS[d.month]} {d.year}"
+
+
+def _render_status_label(total_count: int, summary: SelectionSummary) -> str:
+    """Compose the status line above the Transactions table.
+
+    Layout:
+      - "23 transactions" when nothing's selected.
+      - "23 transactions  ·  N selected  ·  <details>" otherwise, where
+        <details> is per-kind for homogeneous selections, "Net ±X (income · expense)"
+        for mixed income+expense, and an extra "· N transfer" tail
+        whenever transfers are mixed in.
+
+    Pure string composition — kept separate from the view so it can be
+    unit-tested without a QApplication.
+    """
+    base = f"{total_count} transaction{'s' if total_count != 1 else ''}"
+    if summary.count == 0:
+        return base
+
+    parts = [base, f"{summary.count} selected"]
+    parts.extend(_summary_fragments(summary))
+    return "  ·  ".join(parts)
+
+
+def _summary_fragments(summary: SelectionSummary) -> list[str]:
+    """The trailing ' · '-separated chunks describing the selection."""
+    has_income = summary.has_income
+    has_expense = summary.has_expense
+    has_transfer = summary.has_transfer
+
+    fragments: list[str] = []
+    if has_income and not has_expense:
+        fragments.append(f"{money.format_amount(summary.income_total)} income")
+    elif has_expense and not has_income:
+        fragments.append(f"{money.format_amount(summary.expense_total)} expense")
+    elif has_income and has_expense:
+        sign = "−" if summary.net < 0 else "+" if summary.net > 0 else ""
+        net_str = money.format_amount(abs(summary.net))
+        fragments.append(f"Net {sign}{net_str}")
+        fragments.append(
+            f"{money.format_amount(summary.income_total)} income  ·  "
+            f"{money.format_amount(summary.expense_total)} expense"
+        )
+    elif has_transfer and not has_income and not has_expense:
+        fragments.append(f"{money.format_amount(summary.transfer_total)} transfer")
+        return fragments  # transfers-only — already covered
+
+    if has_transfer and (has_income or has_expense):
+        fragments.append(f"{money.format_amount(summary.transfer_total)} transfer")
+    return fragments
 
 
 class TransactionsView(BaseView):
@@ -155,7 +206,10 @@ class TransactionsView(BaseView):
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        # Multi-select with Ctrl-click / Shift-click / drag / Ctrl+A. The
+        # status label above the table aggregates the selected rows.
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._table.itemSelectionChanged.connect(self._on_selection_changed)
         self._table.setShowGrid(False)
         self._table.setAlternatingRowColors(True)
         self._table.setSortingEnabled(False)
@@ -282,10 +336,10 @@ class TransactionsView(BaseView):
         self._table.setVisible(bool(self._displayed))
         self._empty.setVisible(not self._displayed)
 
-        self._count_label.setText(
-            f"{len(self._displayed)} transaction"
-            f"{'s' if len(self._displayed) != 1 else ''}"
-        )
+        # refresh() rebuilds the rows so any prior selection is moot. Update
+        # the label using an empty summary; if the user then selects rows,
+        # _on_selection_changed will recompute.
+        self._update_status_label(SelectionSummary(0, 0, 0, 0))
 
         accounts_by_id = {a.id: a for a in self._cached_accounts}
         cats_by_id = {c.id: c for c in self._cached_categories}
@@ -338,6 +392,21 @@ class TransactionsView(BaseView):
         if row < 0 or row >= len(self._displayed):
             return None
         return self._displayed[row]
+
+    def _selected_transactions(self) -> list[Transaction]:
+        rows = self._table.selectionModel().selectedRows()
+        out: list[Transaction] = []
+        for idx in rows:
+            r = idx.row()
+            if 0 <= r < len(self._displayed):
+                out.append(self._displayed[r])
+        return out
+
+    def _on_selection_changed(self) -> None:
+        self._update_status_label(summarize(self._selected_transactions()))
+
+    def _update_status_label(self, summary: SelectionSummary) -> None:
+        self._count_label.setText(_render_status_label(len(self._displayed), summary))
 
     def _edit_selected(self) -> None:
         tx = self._selected_transaction()
