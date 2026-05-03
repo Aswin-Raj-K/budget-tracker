@@ -125,7 +125,20 @@ class _GoalCard(QFrame):
             withdraw.clicked.connect(self.withdraw_requested.emit)
             actions.addWidget(withdraw)
         actions.addStretch(1)
+
+        edit_btn = QPushButton("Edit")
+        edit_btn.setProperty("class", "ghost")
+        edit_btn.setToolTip("Edit goal (double-click the card or right-click for more)")
+        edit_btn.clicked.connect(self.edit_requested.emit)
+        actions.addWidget(edit_btn)
+
         layout.addLayout(actions)
+
+    def mouseDoubleClickEvent(self, ev) -> None:  # noqa: N802 (Qt naming)
+        # Double-click anywhere on the card edits — matches Budgets / Transactions.
+        if ev.button() == Qt.MouseButton.LeftButton:
+            self.edit_requested.emit()
+        super().mouseDoubleClickEvent(ev)
 
     def _open_context(self, pos) -> None:
         menu = QMenu(self)
