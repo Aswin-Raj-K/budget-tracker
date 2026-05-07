@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -110,6 +111,12 @@ class _BreakdownGroup(QFrame):
         outer.addWidget(head)
 
         self._children_panel = QFrame(self)
+        # The panel needs a fixed-height policy so the maximum-height
+        # animation actually constrains the visible region instead of
+        # the layout fighting back with sizeHint.
+        self._children_panel.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed,
+        )
         children_layout = QVBoxLayout(self._children_panel)
         children_layout.setContentsMargins(28, 4, 0, 4)
         children_layout.setSpacing(8)
@@ -122,13 +129,46 @@ class _BreakdownGroup(QFrame):
                 color=c.category.color,
                 parent=self._children_panel,
             ))
+        # Start collapsed: hidden + zero max height so the parent layout
+        # immediately reclaims the space without a paint flash.
         self._children_panel.setVisible(False)
+        self._children_panel.setMaximumHeight(0)
         outer.addWidget(self._children_panel)
 
+        # Smooth show/hide via a maximumHeight animation so the
+        # surrounding rows ease into place rather than snapping.
+        self._anim = QPropertyAnimation(self._children_panel, b"maximumHeight", self)
+        self._anim.setDuration(140)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim.finished.connect(self._on_anim_finished)
+
     def _toggle(self) -> None:
+        if not self._has_children:
+            return
         self._expanded = not self._expanded
         self._chevron.setText("▾" if self._expanded else "▸")
-        self._children_panel.setVisible(self._expanded)
+
+        self._anim.stop()
+        if self._expanded:
+            # Compute the natural height with the panel transiently shown.
+            self._children_panel.setMaximumHeight(16_777_215)   # QWIDGETSIZE_MAX
+            self._children_panel.setVisible(True)
+            target = self._children_panel.sizeHint().height()
+            self._children_panel.setMaximumHeight(0)
+            self._anim.setStartValue(0)
+            self._anim.setEndValue(target)
+        else:
+            self._anim.setStartValue(self._children_panel.height())
+            self._anim.setEndValue(0)
+        self._anim.start()
+
+    def _on_anim_finished(self) -> None:
+        if self._expanded:
+            # Drop the constraint so the panel can grow with its
+            # contents (e.g. on a future re-layout). Visible already.
+            self._children_panel.setMaximumHeight(16_777_215)
+        else:
+            self._children_panel.setVisible(False)
 
 
 class HomeView(BaseView):
