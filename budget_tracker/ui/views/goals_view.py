@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Iterable
 
 from PySide6.QtCore import Qt, Signal
@@ -20,12 +21,22 @@ from PySide6.QtWidgets import (
 )
 
 from budget_tracker.core import money
+from budget_tracker.core.models import Account, Transaction
 from budget_tracker.core.repositories.accounts import AccountRepository
 from budget_tracker.core.repositories.goals import GoalRepository
+from budget_tracker.core.repositories.transactions import TransactionRepository
 from budget_tracker.services.goal_service import GoalProgress, GoalService
 from budget_tracker.ui.dialogs.contribution_dialog import ContributionDialog
 from budget_tracker.ui.dialogs.goal_dialog import GoalDialog
 from budget_tracker.ui.views.base import BaseView
+
+
+_MONTHS = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def _fmt_date(d: date) -> str:
+    return f"{d.day:02d} {_MONTHS[d.month]} {d.year}"
 
 
 def _deadline_label(progress: GoalProgress) -> str:
@@ -53,12 +64,21 @@ class _GoalCard(QFrame):
     contribute_requested = Signal()
     withdraw_requested = Signal()
 
-    def __init__(self, progress: GoalProgress, parent=None):
+    def __init__(
+        self,
+        progress: GoalProgress,
+        transactions: list[Transaction],
+        accounts_by_id: dict[int, Account],
+        parent=None,
+    ):
         super().__init__(parent)
         self.setProperty("class", "card")
         self.setMinimumHeight(190)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._open_context)
+
+        self._transactions = transactions
+        self._accounts_by_id = accounts_by_id
 
         goal = progress.goal
         layout = QVBoxLayout(self)
@@ -110,6 +130,22 @@ class _GoalCard(QFrame):
         meta.addWidget(deadline_lbl)
         layout.addLayout(meta)
 
+        # Toggle row — shows / hides the linked transactions panel below.
+        self._toggle_btn = QPushButton(self._toggle_label(False))
+        self._toggle_btn.setProperty("class", "ghost")
+        self._toggle_btn.setCheckable(True)
+        self._toggle_btn.toggled.connect(self._on_toggle)
+
+        toggle_row = QHBoxLayout()
+        toggle_row.addWidget(self._toggle_btn)
+        toggle_row.addStretch(1)
+        layout.addLayout(toggle_row)
+
+        # The transactions panel itself — built once, hidden by default.
+        self._tx_panel = self._build_tx_panel()
+        self._tx_panel.setVisible(False)
+        layout.addWidget(self._tx_panel)
+
         layout.addStretch(1)
 
         actions = QHBoxLayout()
@@ -133,7 +169,79 @@ class _GoalCard(QFrame):
         edit_btn.clicked.connect(self.edit_requested.emit)
         actions.addWidget(edit_btn)
 
+        delete_btn = QPushButton("Delete")
+        delete_btn.setProperty("class", "ghost")
+        delete_btn.setToolTip("Delete goal — linked transactions are kept and unlinked.")
+        delete_btn.clicked.connect(self.delete_requested.emit)
+        actions.addWidget(delete_btn)
+
         layout.addLayout(actions)
+
+    def _toggle_label(self, expanded: bool) -> str:
+        n = len(self._transactions)
+        word = "transaction" if n == 1 else "transactions"
+        arrow = "▴" if expanded else "▾"
+        return f"{arrow}  {n} linked {word}"
+
+    def _on_toggle(self, expanded: bool) -> None:
+        self._tx_panel.setVisible(expanded)
+        self._toggle_btn.setText(self._toggle_label(expanded))
+
+    def _build_tx_panel(self) -> QWidget:
+        wrap = QFrame()
+        wrap.setProperty("class", "card-flush")
+        layout = QVBoxLayout(wrap)
+        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setSpacing(4)
+
+        if not self._transactions:
+            empty = QLabel(
+                "No real transactions linked yet. Tick "
+                "“Also record this as a transfer” when contributing "
+                "to track them here."
+            )
+            empty.setProperty("class", "subtle")
+            empty.setWordWrap(True)
+            layout.addWidget(empty)
+            return wrap
+
+        for tx in self._transactions[:8]:                     # cap so the card doesn't explode
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            date_lbl = QLabel(_fmt_date(tx.occurred_on))
+            date_lbl.setProperty("class", "subtle")
+            date_lbl.setFixedWidth(82)
+            row.addWidget(date_lbl)
+
+            account_lbl = QLabel(self._account_label(tx))
+            account_lbl.setProperty("class", "muted")
+            row.addWidget(account_lbl, 1)
+
+            amount_lbl = QLabel(money.format_amount(tx.amount))
+            amount_lbl.setProperty("class", "h3")
+            amount_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            row.addWidget(amount_lbl)
+
+            container = QFrame()
+            container.setLayout(row)
+            layout.addWidget(container)
+
+        if len(self._transactions) > 8:
+            more = QLabel(f"… and {len(self._transactions) - 8} more")
+            more.setProperty("class", "subtle")
+            layout.addWidget(more)
+
+        return wrap
+
+    def _account_label(self, tx: Transaction) -> str:
+        src = self._accounts_by_id.get(tx.account_id)
+        dst = (
+            self._accounts_by_id.get(tx.transfer_account_id)
+            if tx.transfer_account_id is not None else None
+        )
+        if dst is not None:
+            return f"{src.name if src else '—'}  →  {dst.name}"
+        return src.name if src else "—"
 
     def mouseDoubleClickEvent(self, ev) -> None:  # noqa: N802 (Qt naming)
         # Double-click anywhere on the card edits — matches Budgets / Transactions.
@@ -164,6 +272,7 @@ class GoalsView(BaseView):
         self._service = GoalService(conn)
         self._repo = GoalRepository(conn)
         self._account_repo = AccountRepository(conn)
+        self._tx_repo = TransactionRepository(conn)
         self._build()
         self.refresh()
 
@@ -209,12 +318,17 @@ class GoalsView(BaseView):
         self._scroll.setVisible(True)
         self._empty.setVisible(False)
 
+        # Snapshot the maps once per refresh — both grids use them.
+        accounts_by_id = {
+            a.id: a for a in self._account_repo.list(include_archived=True)
+        }
+
         if savings:
             self._host_layout.addWidget(self._section_label("Savings goals"))
-            self._host_layout.addLayout(self._grid(savings))
+            self._host_layout.addLayout(self._grid(savings, accounts_by_id))
         if debts:
             self._host_layout.addWidget(self._section_label("Debt payoff"))
-            self._host_layout.addLayout(self._grid(debts))
+            self._host_layout.addLayout(self._grid(debts, accounts_by_id))
         self._host_layout.addStretch(1)
 
     def _section_label(self, text: str) -> QLabel:
@@ -222,12 +336,19 @@ class GoalsView(BaseView):
         lbl.setProperty("class", "section")
         return lbl
 
-    def _grid(self, items: Iterable[GoalProgress]) -> QGridLayout:
+    def _grid(
+        self,
+        items: Iterable[GoalProgress],
+        accounts_by_id: dict[int, Account],
+    ) -> QGridLayout:
         grid = QGridLayout()
         grid.setHorizontalSpacing(14)
         grid.setVerticalSpacing(14)
         for i, p in enumerate(items):
-            card = _GoalCard(p, parent=self._host)
+            txs = (
+                self._tx_repo.list(goal_id=p.goal.id) if p.goal.id is not None else []
+            )
+            card = _GoalCard(p, txs, accounts_by_id, parent=self._host)
             card.edit_requested.connect(lambda gp=p: self._edit(gp))
             card.delete_requested.connect(lambda gp=p: self._delete(gp))
             card.contribute_requested.connect(lambda gp=p: self._contribute(gp))
@@ -269,9 +390,17 @@ class GoalsView(BaseView):
         goal = progress.goal
         if goal.id is None:
             return
+        linked_count = len(self._tx_repo.list(goal_id=goal.id))
+        body = f"Delete goal “{goal.name}”?"
+        if linked_count > 0:
+            body += (
+                f"\n\nThe {linked_count} transaction"
+                f"{'s' if linked_count != 1 else ''} linked to this goal "
+                "will stay on the Transactions tab — only the link is removed."
+            )
         msg = QMessageBox(self)
         msg.setWindowTitle("Delete goal")
-        msg.setText(f"Delete goal “{goal.name}”?")
+        msg.setText(body)
         msg.setIcon(QMessageBox.Icon.Warning)
         msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
         msg.setDefaultButton(QMessageBox.StandardButton.Cancel)

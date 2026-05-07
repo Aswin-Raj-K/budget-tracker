@@ -95,5 +95,14 @@ class GoalRepository:
         return self.get(goal_id)
 
     def delete(self, goal_id: int) -> None:
+        # Preserve transaction history. Setting goal_id to NULL keeps the
+        # transactions visible on the Transactions tab and in account
+        # balances; they just stop pointing at the (now gone) goal.
+        # Done explicitly rather than relying on FK ON DELETE SET NULL
+        # because the column was added via ALTER TABLE in migration 003.
+        self.conn.execute(
+            "UPDATE transactions SET goal_id = NULL WHERE goal_id = ?",
+            (goal_id,),
+        )
         self.conn.execute("DELETE FROM goals WHERE id = ?", (goal_id,))
         self.conn.commit()

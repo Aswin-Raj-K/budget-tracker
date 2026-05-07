@@ -42,6 +42,7 @@ class Transaction:
     transfer_account_id: Optional[int] = None
     category_id: Optional[int] = None
     note: Optional[str] = None
+    goal_id: Optional[int] = None        # set when produced by a Goal contribute / withdraw
     created_at: Optional[str] = None
 
 

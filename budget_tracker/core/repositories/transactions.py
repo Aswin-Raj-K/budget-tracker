@@ -8,6 +8,7 @@ from budget_tracker.core.models import Transaction, TxKind
 
 
 def _row_to_tx(row: sqlite3.Row) -> Transaction:
+    keys = row.keys()
     return Transaction(
         id=row["id"],
         occurred_on=date.fromisoformat(row["occurred_on"]),
@@ -17,6 +18,9 @@ def _row_to_tx(row: sqlite3.Row) -> Transaction:
         transfer_account_id=row["transfer_account_id"],
         category_id=row["category_id"],
         note=row["note"],
+        # goal_id was added in migration 003 — guard so older snapshots
+        # still parse cleanly during tests.
+        goal_id=row["goal_id"] if "goal_id" in keys else None,
         created_at=row["created_at"],
     )
 
@@ -29,8 +33,8 @@ class TransactionRepository:
         cur = self.conn.execute(
             "INSERT INTO transactions("
             "  occurred_on, kind, amount, account_id, transfer_account_id, "
-            "  category_id, note"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "  category_id, note, goal_id"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 tx.occurred_on.isoformat(),
                 tx.kind,
@@ -39,6 +43,7 @@ class TransactionRepository:
                 tx.transfer_account_id,
                 tx.category_id,
                 tx.note,
+                tx.goal_id,
             ),
         )
         self.conn.commit()
@@ -61,6 +66,7 @@ class TransactionRepository:
         category_id: Optional[int] = None,
         kind: Optional[TxKind] = None,
         text: Optional[str] = None,
+        goal_id: Optional[int] = None,
         limit: Optional[int] = None,
     ) -> list[Transaction]:
         clauses, params = [], []
@@ -82,6 +88,9 @@ class TransactionRepository:
         if text:
             clauses.append("note LIKE ?")
             params.append(f"%{text}%")
+        if goal_id is not None:
+            clauses.append("goal_id = ?")
+            params.append(goal_id)
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         sql = f"SELECT * FROM transactions{where} ORDER BY occurred_on DESC, id DESC"
         if limit is not None:
@@ -94,7 +103,7 @@ class TransactionRepository:
         self.conn.execute(
             "UPDATE transactions SET "
             "  occurred_on = ?, kind = ?, amount = ?, account_id = ?, "
-            "  transfer_account_id = ?, category_id = ?, note = ? "
+            "  transfer_account_id = ?, category_id = ?, note = ?, goal_id = ? "
             "WHERE id = ?",
             (
                 tx.occurred_on.isoformat(),
@@ -104,6 +113,7 @@ class TransactionRepository:
                 tx.transfer_account_id,
                 tx.category_id,
                 tx.note,
+                tx.goal_id,
                 tx.id,
             ),
         )

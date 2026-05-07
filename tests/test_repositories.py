@@ -214,6 +214,32 @@ def test_transaction_aggregations(db):
     assert by_cat[rent.id] == 500
 
 
+def test_transaction_goal_id_round_trip(db):
+    acct = _make_account(db)
+    g = GoalRepository(db).add(Goal(None, "Trip", "savings", 10000, 0))
+    repo = TransactionRepository(db)
+    tx = repo.add(Transaction(
+        None, date(2026, 5, 1), "transfer", 1000, acct.id,
+        transfer_account_id=acct.id,
+        goal_id=g.id,
+    ))
+    fetched = repo.get(tx.id)
+    assert fetched.goal_id == g.id
+
+
+def test_transaction_filter_by_goal(db):
+    acct = _make_account(db)
+    g = GoalRepository(db).add(Goal(None, "Trip", "savings", 10000, 0))
+    other = GoalRepository(db).add(Goal(None, "Other", "savings", 5000, 0))
+    repo = TransactionRepository(db)
+    repo.add(Transaction(None, date(2026, 5, 1), "expense", 100, acct.id, goal_id=g.id))
+    repo.add(Transaction(None, date(2026, 5, 2), "expense", 200, acct.id, goal_id=other.id))
+    repo.add(Transaction(None, date(2026, 5, 3), "expense", 300, acct.id))      # no goal
+
+    only_trip = repo.list(goal_id=g.id)
+    assert [t.amount for t in only_trip] == [100]
+
+
 # ---- budgets ----
 
 def test_budget_upsert_replaces_amount(db):

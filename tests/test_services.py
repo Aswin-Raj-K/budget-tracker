@@ -492,6 +492,50 @@ def test_goal_contribute_rejects_same_source_and_destination(db):
         )
 
 
+def test_goal_contribute_with_transfer_tags_transaction_with_goal_id(db):
+    """The transfer transaction posted on contribute carries goal_id back
+    to the goal, so the Goals tab can find its linked transactions."""
+    checking = AccountRepository(db).add(Account(None, "Checking", "checking", opening_balance=100000))
+    savings = AccountRepository(db).add(Account(None, "Savings", "savings"))
+    g = GoalRepository(db).add(Goal(None, "Trip", "savings", 50000, 0))
+
+    GoalService(db).contribute(
+        g.id, 5000,
+        transfer_from_id=checking.id,
+        transfer_to_id=savings.id,
+    )
+    linked = TransactionRepository(db).list(goal_id=g.id)
+    assert len(linked) == 1
+    assert linked[0].amount == 5000
+    assert linked[0].kind == "transfer"
+    assert linked[0].goal_id == g.id
+
+
+def test_goal_delete_unlinks_transactions(db):
+    """Deleting a goal preserves the linked transactions but clears their
+    goal_id so they're no longer attached to a non-existent goal."""
+    checking = AccountRepository(db).add(Account(None, "Checking", "checking", opening_balance=100000))
+    savings = AccountRepository(db).add(Account(None, "Savings", "savings"))
+    g = GoalRepository(db).add(Goal(None, "Trip", "savings", 50000, 0))
+    GoalService(db).contribute(
+        g.id, 5000,
+        transfer_from_id=checking.id,
+        transfer_to_id=savings.id,
+    )
+
+    GoalRepository(db).delete(g.id)
+
+    # Transactions are still on file (history preserved), just unlinked.
+    all_tx = TransactionRepository(db).list()
+    assert len(all_tx) == 1
+    assert all_tx[0].goal_id is None
+
+    # Account balances are still affected by those transactions.
+    balances = AccountService(db).balances()
+    assert balances[checking.id] == 95000
+    assert balances[savings.id] == 5000
+
+
 # ---- summary service ----
 
 def test_summary_kpis(db):

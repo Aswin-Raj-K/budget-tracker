@@ -66,6 +66,7 @@ class GoalService:
                 transfer_account_id=transfer_to_id,
                 category_id=None,
                 note=goal.name,
+                goal_id=goal_id,
             ))
         return self.repo.contribute(goal_id, delta_minor)
 
