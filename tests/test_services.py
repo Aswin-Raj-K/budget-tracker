@@ -388,6 +388,95 @@ def test_recent_transactions_filters_by_month(db):
     assert len(everything) == 3
 
 
+# ---- category breakdown ----
+
+def test_category_breakdown_empty_month(db):
+    """No expenses → empty groups, zero total."""
+    out = SummaryService(db).category_breakdown_for_month("2026-04")
+    assert out.month == "2026-04"
+    assert out.total == 0
+    assert out.groups == []
+    assert out.uncategorised == 0
+
+
+def test_category_breakdown_groups_parent_with_children_and_percent(db):
+    """Spend on Groceries (direct), Chicken (sub), Vegetables (sub), and
+    Rent should produce two groups: Groceries (parent + 2 children) and
+    Rent (no children). Sorted by parent rolled-up amount, percents
+    sum to ~100."""
+    acct = AccountRepository(db).add(Account(None, "Cash", "cash"))
+    groceries = CategoryRepository(db).add(Category(None, "Groceries", "expense", "#34D399", "🛒"))
+    chicken = CategoryRepository(db).add(
+        Category(None, "Chicken", "expense", "#F87171", "🍗", parent_id=groceries.id)
+    )
+    veg = CategoryRepository(db).add(
+        Category(None, "Vegetables", "expense", "#34D399", "🥬", parent_id=groceries.id)
+    )
+    rent = CategoryRepository(db).add(Category(None, "Rent", "expense", "#EF4444", "🏠"))
+
+    tx = TransactionRepository(db)
+    # 50 directly on Groceries, 30 on Chicken, 20 on Vegetables → Groceries rolls up to 100.
+    tx.add(Transaction(None, date(2026, 4, 1), "expense", 5000, acct.id, None, groceries.id))
+    tx.add(Transaction(None, date(2026, 4, 5), "expense", 3000, acct.id, None, chicken.id))
+    tx.add(Transaction(None, date(2026, 4, 7), "expense", 2000, acct.id, None, veg.id))
+    tx.add(Transaction(None, date(2026, 4, 10), "expense", 4000, acct.id, None, rent.id))
+
+    out = SummaryService(db).category_breakdown_for_month("2026-04")
+    assert out.total == 14000
+    assert len(out.groups) == 2
+
+    # Groceries first — bigger rolled-up amount.
+    g0 = out.groups[0]
+    assert g0.parent.category.name == "Groceries"
+    assert g0.parent.own_amount == 5000
+    assert g0.parent.rolled_up_amount == 10000
+    assert g0.parent.percent == pytest.approx(10000 / 14000 * 100.0)
+    assert [c.category.name for c in g0.children] == ["Chicken", "Vegetables"]
+    # Chicken sorted before Vegetables (3000 > 2000).
+    assert g0.children[0].own_amount == 3000
+    assert g0.children[0].rolled_up_amount == 3000
+    assert g0.children[1].own_amount == 2000
+
+    g1 = out.groups[1]
+    assert g1.parent.category.name == "Rent"
+    assert g1.parent.rolled_up_amount == 4000
+    assert g1.children == []
+
+
+def test_category_breakdown_includes_uncategorised(db):
+    acct = AccountRepository(db).add(Account(None, "Cash", "cash"))
+    food = CategoryRepository(db).add(Category(None, "Food", "expense", "#F00", "x"))
+    tx = TransactionRepository(db)
+    tx.add(Transaction(None, date(2026, 4, 1), "expense", 1000, acct.id, None, food.id))
+    tx.add(Transaction(None, date(2026, 4, 5), "expense", 500, acct.id, None, None))     # uncategorised
+
+    out = SummaryService(db).category_breakdown_for_month("2026-04")
+    assert out.total == 1500
+    assert out.uncategorised == 500
+    assert [g.parent.category.name for g in out.groups] == ["Food"]
+
+
+def test_category_breakdown_orphan_subcategory(db):
+    """A subcategory with spend whose parent has no spend should still
+    appear (as its own group, no children)."""
+    acct = AccountRepository(db).add(Account(None, "Cash", "cash"))
+    parent = CategoryRepository(db).add(Category(None, "Empty Parent", "expense", "#000", "x"))
+    sub = CategoryRepository(db).add(
+        Category(None, "Live Sub", "expense", "#0F0", "x", parent_id=parent.id)
+    )
+    tx = TransactionRepository(db)
+    tx.add(Transaction(None, date(2026, 4, 1), "expense", 800, acct.id, None, sub.id))
+
+    out = SummaryService(db).category_breakdown_for_month("2026-04")
+    # Parent rolls up to 800 because the sub feeds it. Sub appears as a child.
+    assert len(out.groups) == 1
+    g = out.groups[0]
+    assert g.parent.category.name == "Empty Parent"
+    assert g.parent.own_amount == 0
+    assert g.parent.rolled_up_amount == 800
+    assert [c.category.name for c in g.children] == ["Live Sub"]
+
+
 # ---- goal service ----
 
 def test_goal_progress_basic(db):

@@ -104,6 +104,10 @@ class HomeView(BaseView):
         cols.addWidget(self._budget_card, 2)
         outer.addLayout(cols, 1)
 
+        # Full-width category-breakdown panel.
+        self._breakdown_card = SectionCard("Spending by category")
+        outer.addWidget(self._breakdown_card)
+
     # ---------- behaviour ----------
 
     def _shift(self, delta: int) -> None:
@@ -133,6 +137,7 @@ class HomeView(BaseView):
 
         self._populate_transactions()
         self._populate_budgets()
+        self._populate_category_breakdown()
 
     def _populate_transactions(self) -> None:
         self._tx_card.clear_body()
@@ -174,6 +179,51 @@ class HomeView(BaseView):
                 )
             )
         self._budget_card.body_layout().addStretch(1)
+
+    def _populate_category_breakdown(self) -> None:
+        body = self._breakdown_card.body_layout()
+        self._breakdown_card.clear_body()
+        breakdown = self.summary.category_breakdown_for_month(self._month)
+        if breakdown.total <= 0:
+            body.addWidget(_muted_message("No spending this month yet."))
+            return
+
+        for group in breakdown.groups:
+            parent_row = ProgressRow(
+                group.parent.category.name,
+                self._breakdown_amount_label(group.parent),
+                group.parent.percent,
+                status="under",       # neutral colouring; this isn't a budget
+                color=group.parent.category.color,
+            )
+            body.addWidget(parent_row)
+            for child in group.children:
+                child_row = ProgressRow(
+                    f"   │  {child.category.name}",
+                    self._breakdown_amount_label(child),
+                    child.percent,
+                    status="under",
+                    color=child.category.color,
+                )
+                body.addWidget(child_row)
+
+        if breakdown.uncategorised > 0:
+            uncat_pct = (
+                breakdown.uncategorised / breakdown.total * 100.0
+                if breakdown.total else 0.0
+            )
+            body.addWidget(ProgressRow(
+                "Uncategorised",
+                f"{money.format_amount(breakdown.uncategorised)}  ·  {uncat_pct:.0f}%",
+                uncat_pct,
+                status="under",
+                color="#6B7280",
+            ))
+        body.addStretch(1)
+
+    @staticmethod
+    def _breakdown_amount_label(row) -> str:
+        return f"{money.format_amount(row.rolled_up_amount)}  ·  {row.percent:.0f}%"
 
     # ---------- actions ----------
 
