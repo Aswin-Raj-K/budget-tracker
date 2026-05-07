@@ -257,6 +257,12 @@ class HomeView(BaseView):
         scroll.setWidget(host)
         outer.addWidget(scroll)
 
+        # Accounts card lives at the very top — running balance is the
+        # piece most people look at first, and it isn't month-scoped so
+        # it sits naturally above the month switcher.
+        self._accounts_card = SectionCard("Accounts")
+        body.addWidget(self._accounts_card)
+
         # Month switcher row — same pattern as Budgets view.
         switch_row = QHBoxLayout()
         switch_row.setSpacing(6)
@@ -298,10 +304,6 @@ class HomeView(BaseView):
         for c in (self._kpi_spent, self._kpi_income, self._kpi_savings, self._kpi_top):
             kpi_row.addWidget(c)
         body.addLayout(kpi_row)
-
-        # Accounts card — running balance per account.
-        self._accounts_card = SectionCard("Accounts")
-        body.addWidget(self._accounts_card)
 
         # Two-column body. No vertical stretch so the breakdown panel
         # below sits naturally and the whole thing scrolls together.
