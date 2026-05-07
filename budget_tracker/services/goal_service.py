@@ -38,33 +38,56 @@ class GoalService:
         goal_id: int,
         delta_minor: int,
         *,
+        from_account_id: Optional[int] = None,
+        to_account_id: Optional[int] = None,
+        category_id: Optional[int] = None,
+        occurred_on: Optional[date] = None,
+        # Back-compat aliases for an earlier signature; both names map
+        # to from_account_id / to_account_id and we accept either.
         transfer_from_id: Optional[int] = None,
         transfer_to_id: Optional[int] = None,
-        occurred_on: Optional[date] = None,
     ) -> Goal:
         """Bump the goal's current_amount by ``delta_minor`` (signed —
         positive to contribute / pay down, negative to withdraw).
 
-        If both ``transfer_from_id`` and ``transfer_to_id`` are set, also
-        post a real ``transfer`` transaction for ``abs(delta_minor)`` so
-        the move shows up in the user's account balances and KPIs. The
-        transfer's ``occurred_on`` defaults to today.
+        Optionally also posts a real transaction so the move shows up
+        in account balances and Home KPIs:
+
+        - ``from_account_id`` + ``to_account_id`` → ``transfer``
+          (e.g. checking → savings, or checking → tracked credit card).
+        - ``from_account_id`` only (no ``to_account_id``) → ``expense``
+          (debt is paid to a payee outside the app, like a mortgage
+          or student-loan servicer). ``category_id`` is optional.
+        - Neither → no transaction, only the goal counter moves.
+
+        The new transaction's ``occurred_on`` defaults to today.
         """
-        if (transfer_from_id is None) != (transfer_to_id is None):
-            raise ValueError("Provide both source and destination accounts, or neither.")
-        if transfer_from_id is not None and transfer_from_id == transfer_to_id:
+        # Coalesce the back-compat aliases.
+        if from_account_id is None and transfer_from_id is not None:
+            from_account_id = transfer_from_id
+        if to_account_id is None and transfer_to_id is not None:
+            to_account_id = transfer_to_id
+
+        if from_account_id is None and to_account_id is not None:
+            raise ValueError("Provide a source account when a destination is set.")
+        if (
+            from_account_id is not None
+            and to_account_id is not None
+            and from_account_id == to_account_id
+        ):
             raise ValueError("Source and destination accounts must differ.")
 
-        if transfer_from_id is not None and delta_minor != 0:
+        if from_account_id is not None and delta_minor != 0:
             goal = self.repo.get(goal_id)
+            kind = "transfer" if to_account_id is not None else "expense"
             self.tx_repo.add(Transaction(
                 id=None,
                 occurred_on=occurred_on or date.today(),
-                kind="transfer",
+                kind=kind,
                 amount=abs(delta_minor),
-                account_id=transfer_from_id,
-                transfer_account_id=transfer_to_id,
-                category_id=None,
+                account_id=from_account_id,
+                transfer_account_id=to_account_id,            # None for expense
+                category_id=category_id if kind == "expense" else None,
                 note=goal.name,
                 goal_id=goal_id,
             ))

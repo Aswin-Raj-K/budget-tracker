@@ -470,14 +470,16 @@ def test_goal_contribute_without_transfer_only_bumps_progress(db):
     assert TransactionRepository(db).list() == []
 
 
-def test_goal_contribute_rejects_partial_transfer_args(db):
+def test_goal_contribute_rejects_destination_without_source(db):
+    """A destination without a source is meaningless. Previously we also
+    rejected source-without-destination, but that's now valid — it's
+    the expense path (paying an external payee from a tracked account).
+    """
     g = GoalRepository(db).add(Goal(None, "Save", "savings", 50000, 0))
     acct = AccountRepository(db).add(Account(None, "Bank", "checking"))
 
-    with pytest.raises(ValueError, match="Provide both"):
-        GoalService(db).contribute(g.id, 1000, transfer_from_id=acct.id)
-    with pytest.raises(ValueError, match="Provide both"):
-        GoalService(db).contribute(g.id, 1000, transfer_to_id=acct.id)
+    with pytest.raises(ValueError, match="source account"):
+        GoalService(db).contribute(g.id, 1000, to_account_id=acct.id)
 
 
 def test_goal_contribute_rejects_same_source_and_destination(db):
@@ -509,6 +511,48 @@ def test_goal_contribute_with_transfer_tags_transaction_with_goal_id(db):
     assert linked[0].amount == 5000
     assert linked[0].kind == "transfer"
     assert linked[0].goal_id == g.id
+
+
+def test_goal_make_payment_as_expense_for_external_debt(db):
+    """A debt payment to a payee outside the app — e.g. a mortgage —
+    should post as an expense from the chosen account, with optional
+    category, NOT a transfer."""
+    checking = AccountRepository(db).add(Account(None, "Checking", "checking", opening_balance=300000))
+    cat = CategoryRepository(db).add(Category(None, "Loan Payment", "expense", "#F87171", "🏦"))
+    g = GoalRepository(db).add(Goal(None, "Mortgage", "debt", 5_000_000, 0))
+
+    GoalService(db).contribute(
+        g.id, 150000,
+        from_account_id=checking.id,
+        category_id=cat.id,
+    )
+
+    # Goal counter advanced.
+    assert GoalRepository(db).get(g.id).current_amount == 150000
+
+    # An expense was posted, not a transfer — and it's tagged with goal_id + category.
+    txs = TransactionRepository(db).list(goal_id=g.id)
+    assert len(txs) == 1
+    assert txs[0].kind == "expense"
+    assert txs[0].account_id == checking.id
+    assert txs[0].transfer_account_id is None
+    assert txs[0].category_id == cat.id
+
+    # Account balance reflects the outflow.
+    assert AccountService(db).balance_for(checking.id) == 150000
+
+
+def test_goal_expense_mode_works_without_category(db):
+    """Category is optional in expense mode (uncategorised loan payment)."""
+    checking = AccountRepository(db).add(Account(None, "Checking", "checking", opening_balance=200000))
+    g = GoalRepository(db).add(Goal(None, "Loan", "debt", 1_000_000, 0))
+
+    GoalService(db).contribute(g.id, 50000, from_account_id=checking.id)
+
+    txs = TransactionRepository(db).list(goal_id=g.id)
+    assert len(txs) == 1
+    assert txs[0].kind == "expense"
+    assert txs[0].category_id is None
 
 
 def test_goal_delete_unlinks_transactions(db):

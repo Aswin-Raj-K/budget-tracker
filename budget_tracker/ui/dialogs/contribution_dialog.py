@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Iterable, Literal, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -13,24 +15,41 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QVBoxLayout,
 )
 
 from budget_tracker.core import money
-from budget_tracker.core.models import Account
+from budget_tracker.core.models import Account, Category
 
 Direction = Literal["add", "withdraw"]
+LinkedKind = Literal["transfer", "expense"]
+
+
+@dataclass(frozen=True)
+class LinkedTransaction:
+    """What the dialog returns when the user opted in to "also record"."""
+    kind: LinkedKind
+    from_account_id: int
+    to_account_id: Optional[int]    # transfer only
+    category_id: Optional[int]      # expense only (may still be None — uncategorised)
 
 
 class ContributionDialog(QDialog):
-    """Single-amount input with an optional "also record as a transfer"
-    section. The caller decides whether the resulting value increases or
-    decreases the goal's current amount.
+    """Single-amount input with an optional "also record this as a
+    transaction" section.
 
-    When ``accounts`` is provided, a checkbox + two account pickers
-    appear. If the user enables the checkbox and picks valid accounts,
-    ``transfer_accounts()`` returns ``(from_id, to_id)`` so the caller
-    can post a real transfer alongside the goal-progress bump.
+    When ``accounts`` is provided, a checkbox + a Transfer/Expense
+    toggle appear:
+      * Transfer mode — ``From`` and ``To`` account pickers; posts a
+        transfer between two accounts the user owns (e.g. checking →
+        savings, or checking → tracked credit card).
+      * Expense mode — ``From`` account + optional ``Category``; posts
+        an expense (the destination is outside the app, e.g. an
+        external mortgage or student-loan servicer).
+
+    The default mode comes from ``default_mode``: 'transfer' for
+    savings contributions, 'expense' for debt-payoff payments.
     """
 
     def __init__(
@@ -39,19 +58,22 @@ class ContributionDialog(QDialog):
         action_label: str,
         max_value: Optional[int] = None,
         accounts: Optional[Iterable[Account]] = None,
+        categories: Optional[Iterable[Category]] = None,
+        default_mode: LinkedKind = "transfer",
         parent=None,
     ) -> None:
         super().__init__(parent)
         self._amount_minor: Optional[int] = None
-        self._transfer_from_id: Optional[int] = None
-        self._transfer_to_id: Optional[int] = None
+        self._linked: Optional[LinkedTransaction] = None
 
         self._max_value = max_value
         self._action_label = action_label
         self._accounts: list[Account] = list(accounts or [])
+        self._categories: list[Category] = list(categories or [])
+        self._default_mode = default_mode
 
         self.setWindowTitle(title)
-        self.setMinimumWidth(380)
+        self.setMinimumWidth(420)
         self.setModal(True)
 
         outer = QVBoxLayout(self)
@@ -76,31 +98,64 @@ class ContributionDialog(QDialog):
         self._amount.setAlignment(Qt.AlignmentFlag.AlignRight)
         form.addRow("Amount", self._amount)
 
-        # Optional transfer section — only shown when the caller passed
-        # accounts in. The checkbox stays unchecked by default so users
-        # who just want to track progress see no extra fields.
+        # Optional record-as-transaction section. Hidden until the user
+        # opts in so the simple "just bump the counter" flow stays clean.
         self._record_check: Optional[QCheckBox] = None
+        self._mode_group: Optional[QButtonGroup] = None
+        self._transfer_radio: Optional[QRadioButton] = None
+        self._expense_radio: Optional[QRadioButton] = None
         self._from_combo: Optional[QComboBox] = None
         self._to_combo: Optional[QComboBox] = None
+        self._category_combo: Optional[QComboBox] = None
+
         if self._accounts:
-            self._record_check = QCheckBox("Also record this as a transfer between accounts")
-            self._record_check.toggled.connect(self._on_toggle_transfer)
+            self._record_check = QCheckBox("Also record this as a transaction")
+            self._record_check.toggled.connect(self._on_toggle_record)
             form.addRow("", self._record_check)
 
+            mode_row = QHBoxLayout()
+            mode_row.setSpacing(12)
+            self._transfer_radio = QRadioButton("Transfer to another account")
+            self._expense_radio = QRadioButton("Expense (paid outside the app)")
+            self._mode_group = QButtonGroup(self)
+            self._mode_group.addButton(self._transfer_radio)
+            self._mode_group.addButton(self._expense_radio)
+            mode_row.addWidget(self._transfer_radio)
+            mode_row.addWidget(self._expense_radio)
+            mode_row.addStretch(1)
+            self._mode_label = QLabel("Record as")
+            form.addRow(self._mode_label, mode_row)
+            self._transfer_radio.toggled.connect(self._refresh_mode_fields)
+
+            # From account — used in BOTH modes.
             self._from_combo = QComboBox()
+            for a in self._accounts:
+                self._from_combo.addItem(f"{a.name}  ·  {a.type}", a.id)
+            self._from_label = QLabel("From")
+            form.addRow(self._from_label, self._from_combo)
+
+            # To account — transfer mode only.
             self._to_combo = QComboBox()
             for a in self._accounts:
-                label = f"{a.name}  ·  {a.type}"
-                self._from_combo.addItem(label, a.id)
-                self._to_combo.addItem(label, a.id)
-            self._from_combo.setVisible(False)
-            self._to_combo.setVisible(False)
-            self._from_label = QLabel("From")
-            self._from_label.setVisible(False)
+                self._to_combo.addItem(f"{a.name}  ·  {a.type}", a.id)
             self._to_label = QLabel("To")
-            self._to_label.setVisible(False)
-            form.addRow(self._from_label, self._from_combo)
             form.addRow(self._to_label, self._to_combo)
+
+            # Category — expense mode only. "None" allowed for
+            # uncategorised expenses.
+            self._category_combo = QComboBox()
+            self._category_combo.addItem("Uncategorised", None)
+            for c in self._categories:
+                if c.kind == "expense":
+                    label = (
+                        f"   │  {c.name}" if c.parent_id is not None else c.name
+                    )
+                    self._category_combo.addItem(label, c.id)
+            self._category_label = QLabel("Category")
+            form.addRow(self._category_label, self._category_combo)
+
+            # Initial state: collapsed.
+            self._set_record_section_visible(False)
 
         outer.addLayout(form)
 
@@ -117,10 +172,58 @@ class ContributionDialog(QDialog):
         button_row.addWidget(save)
         outer.addLayout(button_row)
 
-    def _on_toggle_transfer(self, checked: bool) -> None:
-        for w in (self._from_label, self._from_combo, self._to_label, self._to_combo):
+    # ---------- mode + visibility plumbing ----------
+
+    def _set_record_section_visible(self, visible: bool) -> None:
+        for w in (
+            self._mode_label,
+            self._transfer_radio,
+            self._expense_radio,
+        ):
             if w is not None:
-                w.setVisible(checked)
+                w.setVisible(visible)
+        if not visible:
+            for w in (
+                self._from_label, self._from_combo,
+                self._to_label, self._to_combo,
+                self._category_label, self._category_combo,
+            ):
+                if w is not None:
+                    w.setVisible(False)
+            return
+        # Default mode kicks in here so the right fields show first.
+        if self._default_mode == "expense":
+            assert self._expense_radio is not None
+            self._expense_radio.setChecked(True)
+        else:
+            assert self._transfer_radio is not None
+            self._transfer_radio.setChecked(True)
+        self._refresh_mode_fields()
+
+    def _on_toggle_record(self, checked: bool) -> None:
+        self._set_record_section_visible(checked)
+
+    def _refresh_mode_fields(self) -> None:
+        if self._record_check is None or not self._record_check.isChecked():
+            return
+        is_transfer = self._transfer_radio is not None and self._transfer_radio.isChecked()
+        # From is shared.
+        if self._from_label is not None:
+            self._from_label.setVisible(True)
+        if self._from_combo is not None:
+            self._from_combo.setVisible(True)
+        # To: transfer only.
+        if self._to_label is not None:
+            self._to_label.setVisible(is_transfer)
+        if self._to_combo is not None:
+            self._to_combo.setVisible(is_transfer)
+        # Category: expense only.
+        if self._category_label is not None:
+            self._category_label.setVisible(not is_transfer)
+        if self._category_combo is not None:
+            self._category_combo.setVisible(not is_transfer)
+
+    # ---------- save / read-back ----------
 
     def _on_save(self) -> None:
         m = money.to_minor(self._amount.value())
@@ -129,23 +232,45 @@ class ContributionDialog(QDialog):
             return
 
         if self._record_check is not None and self._record_check.isChecked():
-            assert self._from_combo is not None and self._to_combo is not None
+            assert self._from_combo is not None
             from_id = self._from_combo.currentData()
-            to_id = self._to_combo.currentData()
-            if from_id is None or to_id is None:
+            if from_id is None:
                 QMessageBox.warning(
                     self, "Cannot save",
-                    "Pick both a source and a destination account, or uncheck the transfer option.",
+                    "Pick the account the money is coming from.",
                 )
                 return
-            if from_id == to_id:
-                QMessageBox.warning(
-                    self, "Cannot save",
-                    "Source and destination accounts must be different.",
+
+            is_transfer = self._transfer_radio is not None and self._transfer_radio.isChecked()
+            if is_transfer:
+                assert self._to_combo is not None
+                to_id = self._to_combo.currentData()
+                if to_id is None:
+                    QMessageBox.warning(
+                        self, "Cannot save",
+                        "Pick a destination account, or switch to Expense mode.",
+                    )
+                    return
+                if from_id == to_id:
+                    QMessageBox.warning(
+                        self, "Cannot save",
+                        "Source and destination accounts must be different.",
+                    )
+                    return
+                self._linked = LinkedTransaction(
+                    kind="transfer",
+                    from_account_id=from_id,
+                    to_account_id=to_id,
+                    category_id=None,
                 )
-                return
-            self._transfer_from_id = from_id
-            self._transfer_to_id = to_id
+            else:
+                cat_id = self._category_combo.currentData() if self._category_combo else None
+                self._linked = LinkedTransaction(
+                    kind="expense",
+                    from_account_id=from_id,
+                    to_account_id=None,
+                    category_id=cat_id,
+                )
 
         self._amount_minor = m
         self.accept()
@@ -153,9 +278,12 @@ class ContributionDialog(QDialog):
     def amount_minor(self) -> Optional[int]:
         return self._amount_minor
 
+    def linked_transaction(self) -> Optional[LinkedTransaction]:
+        return self._linked
+
+    # ---------- back-compat shim so older callers / tests still work ----------
+
     def transfer_accounts(self) -> Optional[tuple[int, int]]:
-        """``(from_id, to_id)`` if the user enabled the transfer checkbox,
-        otherwise ``None``."""
-        if self._transfer_from_id is None or self._transfer_to_id is None:
+        if self._linked is None or self._linked.kind != "transfer":
             return None
-        return self._transfer_from_id, self._transfer_to_id
+        return self._linked.from_account_id, self._linked.to_account_id  # type: ignore[return-value]

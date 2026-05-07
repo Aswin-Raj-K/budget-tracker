@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from budget_tracker.core import money
 from budget_tracker.core.models import Account, Transaction
 from budget_tracker.core.repositories.accounts import AccountRepository
+from budget_tracker.core.repositories.categories import CategoryRepository
 from budget_tracker.core.repositories.goals import GoalRepository
 from budget_tracker.core.repositories.transactions import TransactionRepository
 from budget_tracker.services.goal_service import GoalProgress, GoalService
@@ -272,6 +273,7 @@ class GoalsView(BaseView):
         self._service = GoalService(conn)
         self._repo = GoalRepository(conn)
         self._account_repo = AccountRepository(conn)
+        self._category_repo = CategoryRepository(conn)
         self._tx_repo = TransactionRepository(conn)
         self._build()
         self.refresh()
@@ -420,23 +422,29 @@ class GoalsView(BaseView):
         action = "Pay" if goal.kind == "debt" else "Contribute"
         max_value = goal.target_amount - goal.current_amount  # don't overshoot
         accounts = self._account_repo.list()
+        categories = self._category_repo.list()
+        # Debt goals usually go out to an external payee → default to
+        # Expense. Savings contributions typically move between two
+        # tracked accounts → default to Transfer.
+        default_mode = "expense" if goal.kind == "debt" else "transfer"
         dlg = ContributionDialog(
             title, action,
             max_value=max_value,
             accounts=accounts,
+            categories=categories,
+            default_mode=default_mode,
             parent=self,
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             amt = dlg.amount_minor()
             if not amt:
                 return
-            transfer = dlg.transfer_accounts()
-            from_id = transfer[0] if transfer else None
-            to_id = transfer[1] if transfer else None
+            linked = dlg.linked_transaction()
             self._service.contribute(
                 goal.id, amt,
-                transfer_from_id=from_id,
-                transfer_to_id=to_id,
+                from_account_id=linked.from_account_id if linked else None,
+                to_account_id=linked.to_account_id if linked else None,
+                category_id=linked.category_id if linked else None,
             )
             self.refresh()
 
@@ -450,22 +458,26 @@ class GoalsView(BaseView):
             QMessageBox.information(self, "Nothing to withdraw", "This goal has no funds yet.")
             return
         accounts = self._account_repo.list()
+        categories = self._category_repo.list()
+        # Withdrawing from a savings goal almost always means moving
+        # money back to a spending account → default Transfer.
         dlg = ContributionDialog(
             title, "Withdraw",
             max_value=max_value,
             accounts=accounts,
+            categories=categories,
+            default_mode="transfer",
             parent=self,
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             amt = dlg.amount_minor()
             if not amt:
                 return
-            transfer = dlg.transfer_accounts()
-            from_id = transfer[0] if transfer else None
-            to_id = transfer[1] if transfer else None
+            linked = dlg.linked_transaction()
             self._service.contribute(
                 goal.id, -amt,
-                transfer_from_id=from_id,
-                transfer_to_id=to_id,
+                from_account_id=linked.from_account_id if linked else None,
+                to_account_id=linked.to_account_id if linked else None,
+                category_id=linked.category_id if linked else None,
             )
             self.refresh()
