@@ -29,6 +29,7 @@ from budget_tracker.core.repositories.transactions import TransactionRepository
 from budget_tracker.services.goal_service import GoalProgress, GoalService
 from budget_tracker.ui.dialogs.contribution_dialog import ContributionDialog
 from budget_tracker.ui.dialogs.goal_dialog import GoalDialog
+from budget_tracker.ui.dialogs.transaction_dialog import TransactionDialog
 from budget_tracker.ui.views.base import BaseView
 
 
@@ -59,11 +60,50 @@ def _deadline_label(progress: GoalProgress) -> str:
     return f"~{months} months left"
 
 
+class _TxRow(QFrame):
+    """Clickable row inside the linked-transactions panel. Double-click
+    asks the parent view to open the transaction-edit dialog."""
+
+    edit_requested = Signal(int)        # carries the transaction id
+
+    def __init__(self, tx: Transaction, label: str, parent=None) -> None:
+        super().__init__(parent)
+        if tx.id is None:
+            return
+        self._tx_id: int = tx.id
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("Double-click to edit this transaction")
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        date_lbl = QLabel(_fmt_date(tx.occurred_on), self)
+        date_lbl.setProperty("class", "subtle")
+        date_lbl.setFixedWidth(82)
+        layout.addWidget(date_lbl)
+
+        account_lbl = QLabel(label, self)
+        account_lbl.setProperty("class", "muted")
+        layout.addWidget(account_lbl, 1)
+
+        amount_lbl = QLabel(money.format_amount(tx.amount), self)
+        amount_lbl.setProperty("class", "h3")
+        amount_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(amount_lbl)
+
+    def mouseDoubleClickEvent(self, ev) -> None:  # noqa: N802 (Qt naming)
+        if ev.button() == Qt.MouseButton.LeftButton and hasattr(self, "_tx_id"):
+            self.edit_requested.emit(self._tx_id)
+        super().mouseDoubleClickEvent(ev)
+
+
 class _GoalCard(QFrame):
     edit_requested = Signal()
     delete_requested = Signal()
     contribute_requested = Signal()
     withdraw_requested = Signal()
+    transaction_edit_requested = Signal(int)        # transaction id
 
     def __init__(
         self,
@@ -198,8 +238,9 @@ class _GoalCard(QFrame):
         if not self._transactions:
             empty = QLabel(
                 "No real transactions linked yet. Tick "
-                "“Also record this as a transfer” when contributing "
-                "to track them here."
+                "“Also record this as a transaction” when contributing "
+                "to track them here.",
+                wrap,
             )
             empty.setProperty("class", "subtle")
             empty.setWordWrap(True)
@@ -207,28 +248,12 @@ class _GoalCard(QFrame):
             return wrap
 
         for tx in self._transactions[:8]:                     # cap so the card doesn't explode
-            row = QHBoxLayout()
-            row.setSpacing(8)
-            date_lbl = QLabel(_fmt_date(tx.occurred_on))
-            date_lbl.setProperty("class", "subtle")
-            date_lbl.setFixedWidth(82)
-            row.addWidget(date_lbl)
-
-            account_lbl = QLabel(self._account_label(tx))
-            account_lbl.setProperty("class", "muted")
-            row.addWidget(account_lbl, 1)
-
-            amount_lbl = QLabel(money.format_amount(tx.amount))
-            amount_lbl.setProperty("class", "h3")
-            amount_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            row.addWidget(amount_lbl)
-
-            container = QFrame()
-            container.setLayout(row)
-            layout.addWidget(container)
+            row = _TxRow(tx, self._account_label(tx), parent=wrap)
+            row.edit_requested.connect(self.transaction_edit_requested.emit)
+            layout.addWidget(row)
 
         if len(self._transactions) > 8:
-            more = QLabel(f"… and {len(self._transactions) - 8} more")
+            more = QLabel(f"… and {len(self._transactions) - 8} more", wrap)
             more.setProperty("class", "subtle")
             layout.addWidget(more)
 
@@ -355,6 +380,7 @@ class GoalsView(BaseView):
             card.delete_requested.connect(lambda gp=p: self._delete(gp))
             card.contribute_requested.connect(lambda gp=p: self._contribute(gp))
             card.withdraw_requested.connect(lambda gp=p: self._withdraw(gp))
+            card.transaction_edit_requested.connect(self._edit_transaction)
             grid.addWidget(card, i // self.COLUMNS, i % self.COLUMNS)
         return grid
 
@@ -386,6 +412,17 @@ class GoalsView(BaseView):
     def _edit(self, progress: GoalProgress) -> None:
         dlg = GoalDialog(self.conn, goal=progress.goal, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.refresh()
+
+    def _edit_transaction(self, tx_id: int) -> None:
+        try:
+            tx = self._tx_repo.get(tx_id)
+        except LookupError:
+            return  # row was deleted out from under us — refresh on next interaction
+        dlg = TransactionDialog(self.conn, transaction=tx, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            # Amount or account may have changed — re-fetch progress, balances,
+            # and the per-card transaction lists.
             self.refresh()
 
     def _delete(self, progress: GoalProgress) -> None:

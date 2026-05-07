@@ -249,6 +249,9 @@ class TransactionDialog(QDialog):
 
         if self._editing and self._editing.id is not None:
             tx.id = self._editing.id
+            # Preserve fields the dialog doesn't expose (e.g. goal_id) so
+            # editing a goal-linked transaction doesn't silently unlink it.
+            tx.goal_id = self._editing.goal_id
             self._saved = self._tx_repo.update(tx)
         else:
             self._saved = self._tx_repo.add(tx)

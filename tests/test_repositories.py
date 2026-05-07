@@ -227,6 +227,29 @@ def test_transaction_goal_id_round_trip(db):
     assert fetched.goal_id == g.id
 
 
+def test_transaction_update_can_clear_goal_id(db):
+    """The repository update writes whatever goal_id is on the dataclass.
+    Callers that want to preserve an existing link must read it first
+    (TransactionDialog does this in _on_save)."""
+    acct = _make_account(db)
+    g = GoalRepository(db).add(Goal(None, "Trip", "savings", 10000, 0))
+    repo = TransactionRepository(db)
+    tx = repo.add(Transaction(
+        None, date(2026, 5, 1), "expense", 100, acct.id, goal_id=g.id,
+    ))
+    assert repo.get(tx.id).goal_id == g.id
+
+    # Round-trip with goal_id preserved.
+    tx.amount = 200
+    repo.update(tx)
+    assert repo.get(tx.id).goal_id == g.id
+
+    # Setting goal_id to None on the dataclass clears the link.
+    tx.goal_id = None
+    repo.update(tx)
+    assert repo.get(tx.id).goal_id is None
+
+
 def test_transaction_filter_by_goal(db):
     acct = _make_account(db)
     g = GoalRepository(db).add(Goal(None, "Trip", "savings", 10000, 0))
