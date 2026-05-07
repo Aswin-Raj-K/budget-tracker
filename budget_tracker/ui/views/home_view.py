@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -14,8 +15,10 @@ from PySide6.QtWidgets import (
 )
 
 from budget_tracker.core import money
+from budget_tracker.core.repositories.accounts import AccountRepository
 from budget_tracker.core.repositories.categories import CategoryRepository
 from budget_tracker.services._month import current_month, human_month, shift_month
+from budget_tracker.services.account_service import AccountService
 from budget_tracker.services.budget_service import BudgetService
 from budget_tracker.services.summary_service import (
     CategorySpend,
@@ -27,6 +30,15 @@ from budget_tracker.ui.widgets.kpi_card import KpiCard
 from budget_tracker.ui.widgets.progress_row import ProgressRow
 from budget_tracker.ui.widgets.section_card import SectionCard
 from budget_tracker.ui.widgets.transaction_row import TransactionRow
+
+
+_ACCOUNT_TYPE_LABELS = {
+    "checking": "Checking",
+    "savings":  "Savings",
+    "credit":   "Credit card",
+    "cash":     "Cash",
+    "wallet":   "Wallet",
+}
 
 
 def _muted_message(text: str) -> QLabel:
@@ -62,6 +74,8 @@ class _BreakdownGroup(QFrame):
     nested children list. Defaults to collapsed so the panel reads
     cleanly on month switch."""
 
+    selection_toggled = Signal(int, int, bool)        # category_id, rolled_up_amount, checked
+
     def __init__(
         self,
         parent_spend: CategorySpend,
@@ -71,6 +85,8 @@ class _BreakdownGroup(QFrame):
         super().__init__(parent)
         self._has_children = bool(children)
         self._expanded = False
+        self._category_id = parent_spend.category.id
+        self._amount = parent_spend.rolled_up_amount
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -80,6 +96,14 @@ class _BreakdownGroup(QFrame):
         head_layout = QHBoxLayout(head)
         head_layout.setContentsMargins(0, 0, 0, 0)
         head_layout.setSpacing(10)
+
+        # Per-row checkbox for the multi-select sum. Self-contained click
+        # target — the checkbox eats its own mouse events so toggling
+        # selection doesn't also expand/collapse the row.
+        self._select_check = QCheckBox(head)
+        self._select_check.setToolTip("Select to include in the total below")
+        self._select_check.toggled.connect(self._on_select_toggled)
+        head_layout.addWidget(self._select_check)
 
         # Chevron sized for legibility — a 14-pt glyph slightly heavier
         # than the body type, in muted text so it doesn't shout. Reserved
@@ -175,6 +199,19 @@ class _BreakdownGroup(QFrame):
         else:
             self._children_panel.setVisible(False)
 
+    # ---- selection ----
+
+    def _on_select_toggled(self, checked: bool) -> None:
+        if self._category_id is None:
+            return
+        self.selection_toggled.emit(self._category_id, self._amount, checked)
+
+    def set_selected(self, checked: bool) -> None:
+        """Programmatic toggle that doesn't refire the toggled signal."""
+        self._select_check.blockSignals(True)
+        self._select_check.setChecked(checked)
+        self._select_check.blockSignals(False)
+
 
 class HomeView(BaseView):
     title = "Home"
@@ -184,9 +221,13 @@ class HomeView(BaseView):
         super().__init__(conn, parent)
         self.summary = SummaryService(conn)
         self.budgets_svc = BudgetService(conn)
+        self.account_svc = AccountService(conn)
         self.categories = CategoryRepository(conn)
+        self.account_repo = AccountRepository(conn)
 
         self._month = current_month()
+        self._selected_groups: set[int] = set()        # category ids selected in the breakdown panel
+        self._selected_amounts: dict[int, int] = {}    # category id → rolled-up spend
         self._build()
         self.refresh()
 
@@ -258,6 +299,10 @@ class HomeView(BaseView):
             kpi_row.addWidget(c)
         body.addLayout(kpi_row)
 
+        # Accounts card — running balance per account.
+        self._accounts_card = SectionCard("Accounts")
+        body.addWidget(self._accounts_card)
+
         # Two-column body. No vertical stretch so the breakdown panel
         # below sits naturally and the whole thing scrolls together.
         self._tx_card = SectionCard("Recent transactions")
@@ -271,6 +316,32 @@ class HomeView(BaseView):
 
         # Full-width category-breakdown panel.
         self._breakdown_card = SectionCard("Spending by category")
+
+        # Persistent selection-summary strip. Lives outside the body
+        # (which gets cleared on every refresh) so its state survives
+        # month switches if needed. Hidden when nothing is selected.
+        self._selection_strip = QFrame(self._breakdown_card)
+        self._selection_strip.setProperty("class", "card-flush")
+        sel_layout = QHBoxLayout(self._selection_strip)
+        sel_layout.setContentsMargins(0, 6, 0, 6)
+        sel_layout.setSpacing(10)
+        self._selection_label = QLabel("", self._selection_strip)
+        self._selection_label.setProperty("class", "h3")
+        sel_layout.addWidget(self._selection_label)
+        sel_layout.addStretch(1)
+        clear_btn = QPushButton("Clear", self._selection_strip)
+        clear_btn.setProperty("class", "ghost")
+        clear_btn.clicked.connect(self._clear_breakdown_selection)
+        sel_layout.addWidget(clear_btn)
+        self._selection_strip.setVisible(False)
+        # Place the strip ABOVE the SectionCard's body title row so it
+        # reads as part of the same panel.
+        self._breakdown_card.body_layout().addWidget(self._selection_strip)
+        # The strip is added once on build; clear_body() in
+        # _populate_category_breakdown() drops it because it removes
+        # *every* widget from the body. We re-add the strip from a
+        # tracked instance instead.
+
         body.addWidget(self._breakdown_card)
         body.addStretch(1)
 
@@ -301,9 +372,52 @@ class HomeView(BaseView):
         else:
             self._kpi_top.set_value("—")
 
+        self._populate_accounts()
         self._populate_transactions()
         self._populate_budgets()
         self._populate_category_breakdown()
+
+    def _populate_accounts(self) -> None:
+        body = self._accounts_card.body_layout()
+        self._accounts_card.clear_body()
+        accounts = self.account_repo.list()
+        if not accounts:
+            body.addWidget(_muted_message(
+                "No accounts yet. Add one in Settings to start tracking balances."
+            ))
+            return
+        balances = self.account_svc.balances()
+        for a in accounts:
+            body.addWidget(self._account_row(a, balances.get(a.id, a.opening_balance)))
+
+    def _account_row(self, account, running_balance: int) -> QFrame:
+        row = QFrame(self._accounts_card)
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setSpacing(10)
+
+        name = QLabel(account.name, row)
+        name.setProperty("class", "h3")
+        layout.addWidget(name)
+
+        type_lbl = QLabel(_ACCOUNT_TYPE_LABELS.get(account.type, account.type), row)
+        type_lbl.setProperty("class", "chip")
+        layout.addWidget(type_lbl)
+
+        # Credit accounts are liabilities — running_balance is "owed". Add a
+        # discreet hint so it doesn't read like cash on hand.
+        if account.type == "credit" and running_balance > 0:
+            owed_chip = QLabel("owed", row)
+            owed_chip.setProperty("class", "chip")
+            layout.addWidget(owed_chip)
+
+        layout.addStretch(1)
+
+        balance = QLabel(money.format_amount(running_balance), row)
+        balance.setProperty("class", "h3")
+        balance.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(balance)
+        return row
 
     def _populate_transactions(self) -> None:
         self._tx_card.clear_body()
@@ -348,16 +462,29 @@ class HomeView(BaseView):
 
     def _populate_category_breakdown(self) -> None:
         body = self._breakdown_card.body_layout()
+        # SectionCard.clear_body() drops every child of the body widget,
+        # which would also delete the persistent selection strip. Hide
+        # and reparent it temporarily so it survives the wipe, then
+        # re-add it as the first row.
+        self._selection_strip.setParent(None)
         self._breakdown_card.clear_body()
+        body.addWidget(self._selection_strip)
+
+        # Selection state is meaningful only against the currently
+        # rendered set of categories — switching months invalidates it.
+        self._selected_groups.clear()
+        self._selected_amounts: dict[int, int] = {}
+        self._refresh_selection_strip()
+
         breakdown = self.summary.category_breakdown_for_month(self._month)
         if breakdown.total <= 0:
             body.addWidget(_muted_message("No spending this month yet."))
             return
 
         for group in breakdown.groups:
-            body.addWidget(
-                _BreakdownGroup(group.parent, group.children, parent=self._breakdown_card)
-            )
+            widget = _BreakdownGroup(group.parent, group.children, parent=self._breakdown_card)
+            widget.selection_toggled.connect(self._on_breakdown_selection_toggled)
+            body.addWidget(widget)
 
         if breakdown.uncategorised > 0:
             uncat_pct = (
@@ -371,6 +498,43 @@ class HomeView(BaseView):
                 status="under",
                 color="#6B7280",
             ))
+
+    # ---- breakdown multi-select sum ----
+
+    def _on_breakdown_selection_toggled(
+        self, category_id: int, amount: int, checked: bool
+    ) -> None:
+        if checked:
+            self._selected_groups.add(category_id)
+            self._selected_amounts[category_id] = amount
+        else:
+            self._selected_groups.discard(category_id)
+            self._selected_amounts.pop(category_id, None)
+        self._refresh_selection_strip()
+
+    def _refresh_selection_strip(self) -> None:
+        count = len(self._selected_groups)
+        if count == 0:
+            self._selection_strip.setVisible(False)
+            self._selection_label.setText("")
+            return
+        total = sum(self._selected_amounts.values())
+        word = "category" if count == 1 else "categories"
+        self._selection_label.setText(
+            f"{count} {word} selected  ·  {money.format_amount(total)} total"
+        )
+        self._selection_strip.setVisible(True)
+
+    def _clear_breakdown_selection(self) -> None:
+        # Walk the breakdown card's body and uncheck any selected groups.
+        body = self._breakdown_card.body_layout()
+        for i in range(body.count()):
+            w = body.itemAt(i).widget()
+            if isinstance(w, _BreakdownGroup):
+                w.set_selected(False)
+        self._selected_groups.clear()
+        self._selected_amounts.clear()
+        self._refresh_selection_strip()
 
     # ---------- actions ----------
 
