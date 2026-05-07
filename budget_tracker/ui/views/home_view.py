@@ -111,9 +111,9 @@ class _BreakdownGroup(QFrame):
         outer.addWidget(head)
 
         self._children_panel = QFrame(self)
-        # The panel needs a fixed-height policy so the maximum-height
-        # animation actually constrains the visible region instead of
-        # the layout fighting back with sizeHint.
+        # Fixed vertical policy so the maximum-height animation actually
+        # constrains the visible region instead of the layout fighting
+        # back via sizeHint each frame.
         self._children_panel.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed,
         )
@@ -129,8 +129,17 @@ class _BreakdownGroup(QFrame):
                 color=c.category.color,
                 parent=self._children_panel,
             ))
-        # Start collapsed: hidden + zero max height so the parent layout
-        # immediately reclaims the space without a paint flash.
+
+        # Pre-measure the natural height NOW, while the panel is fully
+        # laid out, and cache it. Doing this here means the open
+        # animation never has to relax the maxHeight constraint to
+        # measure — that earlier round-trip was flashing the panel at
+        # full size for one frame, which read as the "jump".
+        children_layout.activate()
+        self._target_height = max(1, self._children_panel.sizeHint().height())
+
+        # Now collapse: hidden + zero max height. Parent layout reclaims
+        # the space immediately, no paint at full size.
         self._children_panel.setVisible(False)
         self._children_panel.setMaximumHeight(0)
         outer.addWidget(self._children_panel)
@@ -150,13 +159,9 @@ class _BreakdownGroup(QFrame):
 
         self._anim.stop()
         if self._expanded:
-            # Compute the natural height with the panel transiently shown.
-            self._children_panel.setMaximumHeight(16_777_215)   # QWIDGETSIZE_MAX
             self._children_panel.setVisible(True)
-            target = self._children_panel.sizeHint().height()
-            self._children_panel.setMaximumHeight(0)
             self._anim.setStartValue(0)
-            self._anim.setEndValue(target)
+            self._anim.setEndValue(self._target_height)
         else:
             self._anim.setStartValue(self._children_panel.height())
             self._anim.setEndValue(0)
@@ -164,8 +169,8 @@ class _BreakdownGroup(QFrame):
 
     def _on_anim_finished(self) -> None:
         if self._expanded:
-            # Drop the constraint so the panel can grow with its
-            # contents (e.g. on a future re-layout). Visible already.
+            # Drop the constraint so window resizes / re-layouts can
+            # grow the panel naturally if needed.
             self._children_panel.setMaximumHeight(16_777_215)
         else:
             self._children_panel.setVisible(False)
