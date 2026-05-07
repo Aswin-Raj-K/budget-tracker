@@ -1,19 +1,25 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
+    QWidget,
 )
 
 from budget_tracker.core import money
 from budget_tracker.core.repositories.categories import CategoryRepository
 from budget_tracker.services._month import current_month, human_month, shift_month
 from budget_tracker.services.budget_service import BudgetService
-from budget_tracker.services.summary_service import SummaryService
+from budget_tracker.services.summary_service import (
+    CategorySpend,
+    SummaryService,
+)
 from budget_tracker.ui.dialogs.transaction_dialog import TransactionDialog
 from budget_tracker.ui.views.base import BaseView
 from budget_tracker.ui.widgets.kpi_card import KpiCard
@@ -29,6 +35,91 @@ def _muted_message(text: str) -> QLabel:
     lbl.setContentsMargins(0, 24, 0, 24)
     lbl.setWordWrap(True)
     return lbl
+
+
+def _breakdown_amount(spend: CategorySpend) -> str:
+    return (
+        f"{money.format_amount(spend.rolled_up_amount)}"
+        f"  ·  {spend.percent:.0f}%"
+    )
+
+
+class _ClickableFrame(QFrame):
+    """A QFrame that emits ``clicked`` on left mouse-press."""
+
+    clicked = Signal()
+
+    def mousePressEvent(self, ev) -> None:        # noqa: N802 (Qt naming)
+        if ev.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(ev)
+
+
+class _BreakdownGroup(QFrame):
+    """One row in the Spending-by-category panel: a parent progress
+    row plus, when there are sub-categories, a chevron that expands a
+    nested children list. Defaults to collapsed so the panel reads
+    cleanly on month switch."""
+
+    def __init__(
+        self,
+        parent_spend: CategorySpend,
+        children: list[CategorySpend],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._has_children = bool(children)
+        self._expanded = False
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(6)
+
+        head = _ClickableFrame(self)
+        head_layout = QHBoxLayout(head)
+        head_layout.setContentsMargins(0, 0, 0, 0)
+        head_layout.setSpacing(8)
+
+        self._chevron = QLabel("▸" if self._has_children else "  ", head)
+        self._chevron.setProperty("class", "subtle")
+        self._chevron.setFixedWidth(14)
+        head_layout.addWidget(self._chevron)
+
+        head_layout.addWidget(ProgressRow(
+            parent_spend.category.name,
+            _breakdown_amount(parent_spend),
+            parent_spend.percent,
+            status="under",
+            color=parent_spend.category.color,
+            parent=head,
+        ), 1)
+
+        if self._has_children:
+            head.setCursor(Qt.CursorShape.PointingHandCursor)
+            head.setToolTip("Click to show subcategories")
+            head.clicked.connect(self._toggle)
+        outer.addWidget(head)
+
+        self._children_panel = QFrame(self)
+        children_layout = QVBoxLayout(self._children_panel)
+        children_layout.setContentsMargins(28, 4, 0, 4)
+        children_layout.setSpacing(8)
+        for c in children:
+            children_layout.addWidget(ProgressRow(
+                c.category.name,
+                _breakdown_amount(c),
+                c.percent,
+                status="under",
+                color=c.category.color,
+                parent=self._children_panel,
+            ))
+        self._children_panel.setVisible(False)
+        outer.addWidget(self._children_panel)
+
+    def _toggle(self) -> None:
+        self._expanded = not self._expanded
+        self._chevron.setText("▾" if self._expanded else "▸")
+        self._children_panel.setVisible(self._expanded)
 
 
 class HomeView(BaseView):
@@ -48,9 +139,23 @@ class HomeView(BaseView):
     # ---------- UI assembly ----------
 
     def _build(self) -> None:
+        # Outer layout is a flush scroll-area host so the page can grow
+        # vertically without clipping the breakdown panel underneath.
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(28, 22, 28, 24)
-        outer.setSpacing(16)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        host = QWidget(scroll)
+        body = QVBoxLayout(host)
+        body.setContentsMargins(28, 22, 28, 28)
+        body.setSpacing(16)
+        scroll.setWidget(host)
+        outer.addWidget(scroll)
 
         # Month switcher row — same pattern as Budgets view.
         switch_row = QHBoxLayout()
@@ -80,7 +185,7 @@ class HomeView(BaseView):
         switch_row.addWidget(self._next_btn)
         switch_row.addStretch(1)
         switch_row.addWidget(self._this_month_btn)
-        outer.addLayout(switch_row)
+        body.addLayout(switch_row)
 
         # KPI row
         self._kpi_spent = KpiCard("Spent")
@@ -92,9 +197,10 @@ class HomeView(BaseView):
         kpi_row.setSpacing(14)
         for c in (self._kpi_spent, self._kpi_income, self._kpi_savings, self._kpi_top):
             kpi_row.addWidget(c)
-        outer.addLayout(kpi_row)
+        body.addLayout(kpi_row)
 
-        # Two-column body
+        # Two-column body. No vertical stretch so the breakdown panel
+        # below sits naturally and the whole thing scrolls together.
         self._tx_card = SectionCard("Recent transactions")
         self._budget_card = SectionCard("Budgets at a glance")
 
@@ -102,11 +208,12 @@ class HomeView(BaseView):
         cols.setSpacing(14)
         cols.addWidget(self._tx_card, 3)
         cols.addWidget(self._budget_card, 2)
-        outer.addLayout(cols, 1)
+        body.addLayout(cols)
 
         # Full-width category-breakdown panel.
         self._breakdown_card = SectionCard("Spending by category")
-        outer.addWidget(self._breakdown_card)
+        body.addWidget(self._breakdown_card)
+        body.addStretch(1)
 
     # ---------- behaviour ----------
 
@@ -189,23 +296,9 @@ class HomeView(BaseView):
             return
 
         for group in breakdown.groups:
-            parent_row = ProgressRow(
-                group.parent.category.name,
-                self._breakdown_amount_label(group.parent),
-                group.parent.percent,
-                status="under",       # neutral colouring; this isn't a budget
-                color=group.parent.category.color,
+            body.addWidget(
+                _BreakdownGroup(group.parent, group.children, parent=self._breakdown_card)
             )
-            body.addWidget(parent_row)
-            for child in group.children:
-                child_row = ProgressRow(
-                    f"   │  {child.category.name}",
-                    self._breakdown_amount_label(child),
-                    child.percent,
-                    status="under",
-                    color=child.category.color,
-                )
-                body.addWidget(child_row)
 
         if breakdown.uncategorised > 0:
             uncat_pct = (
@@ -219,11 +312,6 @@ class HomeView(BaseView):
                 status="under",
                 color="#6B7280",
             ))
-        body.addStretch(1)
-
-    @staticmethod
-    def _breakdown_amount_label(row) -> str:
-        return f"{money.format_amount(row.rolled_up_amount)}  ·  {row.percent:.0f}%"
 
     # ---------- actions ----------
 
