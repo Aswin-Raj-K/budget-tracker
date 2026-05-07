@@ -78,11 +78,20 @@ class _BreakdownGroup(QFrame):
         head = _ClickableFrame(self)
         head_layout = QHBoxLayout(head)
         head_layout.setContentsMargins(0, 0, 0, 0)
-        head_layout.setSpacing(8)
+        head_layout.setSpacing(10)
 
-        self._chevron = QLabel("▸" if self._has_children else "  ", head)
-        self._chevron.setProperty("class", "subtle")
-        self._chevron.setFixedWidth(14)
+        # Chevron sized for legibility — a 14-pt glyph slightly heavier
+        # than the body type, in muted text so it doesn't shout. Reserved
+        # width even for childless rows so columns line up.
+        self._chevron = QLabel(
+            "▸" if self._has_children else "  ",
+            head,
+        )
+        self._chevron.setFixedWidth(20)
+        self._chevron.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._chevron.setStyleSheet(
+            "font-size: 14px; font-weight: 600; color: #94A3B8;"
+        )
         head_layout.addWidget(self._chevron)
 
         head_layout.addWidget(ProgressRow(
@@ -149,6 +158,11 @@ class HomeView(BaseView):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Reserve the vertical-scrollbar gutter at all times — when a user
+        # expands a breakdown row and the page suddenly overflows, an
+        # appearing scrollbar would otherwise push every widget left and
+        # feel glitchy.
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
 
         host = QWidget(scroll)
         body = QVBoxLayout(host)
