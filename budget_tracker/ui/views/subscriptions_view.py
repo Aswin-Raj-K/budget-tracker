@@ -196,17 +196,44 @@ class SubscriptionsView(BaseView):
         self._repo.update(s)
         self.refresh()
 
+    def _mark_selected_paid(self) -> None:
+        s = self._selected()
+        if s is None or s.id is None:
+            return
+        confirm = QMessageBox(self)
+        confirm.setWindowTitle("Mark as paid")
+        confirm.setIcon(QMessageBox.Icon.Question)
+        confirm.setText(
+            f"Post a {money.format_amount(s.amount)} expense for "
+            f"“{s.name}” dated {_fmt_date(s.next_billing_date)} "
+            f"and roll the next billing date forward?"
+        )
+        confirm.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+        confirm.setDefaultButton(QMessageBox.StandardButton.Yes)
+        if confirm.exec() != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self._service.mark_as_paid(s.id)
+        except ValueError as e:
+            QMessageBox.warning(self, "Cannot mark as paid", str(e))
+            return
+        self.refresh()
+
     def _open_context_menu(self, pos) -> None:
         s = self._selected()
         if s is None:
             return
         menu = QMenu(self)
+        mark_paid = QAction("Mark as paid", self)
+        mark_paid.triggered.connect(self._mark_selected_paid)
         edit = QAction("Edit", self)
         edit.triggered.connect(self._edit_selected)
         toggle = QAction("Mark inactive" if s.active else "Mark active", self)
         toggle.triggered.connect(self._toggle_selected_active)
         delete = QAction("Delete", self)
         delete.triggered.connect(self._delete_selected)
+        menu.addAction(mark_paid)
+        menu.addSeparator()
         menu.addAction(edit)
         menu.addAction(toggle)
         menu.addSeparator()

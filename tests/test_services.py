@@ -34,6 +34,7 @@ from budget_tracker.services.settings_service import SettingsService
 from budget_tracker.services.subscription_service import (
     SubscriptionService,
     monthly_equivalent,
+    next_billing_after,
 )
 from budget_tracker.services.summary_service import SummaryService
 
@@ -501,3 +502,98 @@ def test_subscription_summary_active_only(db):
     summary = SubscriptionService(db).summary()
     assert summary.total_monthly == 10000
     assert len(summary.items) == 1
+
+
+# ---- next_billing_after (cycle math) ----
+
+def test_next_billing_after_weekly():
+    assert next_billing_after(date(2026, 5, 1), "weekly") == date(2026, 5, 8)
+
+
+def test_next_billing_after_monthly_simple():
+    assert next_billing_after(date(2026, 5, 1), "monthly") == date(2026, 6, 1)
+
+
+def test_next_billing_after_monthly_clamps_end_of_month():
+    # Jan 31 + 1 month → Feb 28 (or Feb 29 in a leap year), not "Feb 31".
+    assert next_billing_after(date(2026, 1, 31), "monthly") == date(2026, 2, 28)
+    assert next_billing_after(date(2024, 1, 31), "monthly") == date(2024, 2, 29)
+
+
+def test_next_billing_after_monthly_year_rollover():
+    assert next_billing_after(date(2026, 12, 15), "monthly") == date(2027, 1, 15)
+
+
+def test_next_billing_after_yearly():
+    assert next_billing_after(date(2026, 5, 1), "yearly") == date(2027, 5, 1)
+
+
+def test_next_billing_after_yearly_leap_day_clamps():
+    assert next_billing_after(date(2024, 2, 29), "yearly") == date(2025, 2, 28)
+
+
+def test_next_billing_after_unknown_cycle():
+    with pytest.raises(ValueError):
+        next_billing_after(date(2026, 5, 1), "fortnightly")
+
+
+# ---- mark_as_paid ----
+
+def test_mark_as_paid_creates_expense_and_rolls_date(db):
+    acct = AccountRepository(db).add(Account(None, "Card", "credit"))
+    cat = CategoryRepository(db).add(Category(None, "Subs", "expense", "#7C5CFF", "🔁"))
+    sub = SubscriptionRepository(db).add(Subscription(
+        None, "Netflix", 50000, "monthly", date(2026, 5, 1),
+        category_id=cat.id, account_id=acct.id,
+    ))
+
+    svc = SubscriptionService(db)
+    tx = svc.mark_as_paid(sub.id)
+
+    assert tx.id is not None
+    assert tx.kind == "expense"
+    assert tx.amount == 50000
+    assert tx.account_id == acct.id
+    assert tx.category_id == cat.id
+    assert tx.note == "Netflix"
+    assert tx.occurred_on == date(2026, 5, 1)
+
+    refreshed = SubscriptionRepository(db).get(sub.id)
+    assert refreshed.next_billing_date == date(2026, 6, 1)
+
+
+def test_mark_as_paid_yearly_rolls_a_year(db):
+    acct = AccountRepository(db).add(Account(None, "Bank", "checking"))
+    sub = SubscriptionRepository(db).add(Subscription(
+        None, "Domain", 120000, "yearly", date(2026, 7, 15),
+        account_id=acct.id,
+    ))
+
+    SubscriptionService(db).mark_as_paid(sub.id)
+
+    refreshed = SubscriptionRepository(db).get(sub.id)
+    assert refreshed.next_billing_date == date(2027, 7, 15)
+
+
+def test_mark_as_paid_without_account_raises(db):
+    sub = SubscriptionRepository(db).add(Subscription(
+        None, "Mystery", 1000, "monthly", date(2026, 5, 1),
+        # account_id omitted → no debit target
+    ))
+    with pytest.raises(ValueError, match="no account set"):
+        SubscriptionService(db).mark_as_paid(sub.id)
+
+
+def test_mark_as_paid_carries_into_credit_card_balance(db):
+    """End-to-end: marking a subscription paid should land in the credit
+    card's running balance via AccountService."""
+    card = AccountRepository(db).add(Account(None, "Visa", "credit"))
+    sub = SubscriptionRepository(db).add(Subscription(
+        None, "Spotify", 9900, "monthly", date(2026, 5, 1),
+        account_id=card.id,
+    ))
+
+    SubscriptionService(db).mark_as_paid(sub.id)
+
+    # Credit card debt grows by the subscription amount.
+    assert AccountService(db).balance_for(card.id) == 9900
