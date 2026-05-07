@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from budget_tracker.core import money
+from budget_tracker.core.repositories.accounts import AccountRepository
 from budget_tracker.core.repositories.goals import GoalRepository
 from budget_tracker.services.goal_service import GoalProgress, GoalService
 from budget_tracker.ui.dialogs.contribution_dialog import ContributionDialog
@@ -162,6 +163,7 @@ class GoalsView(BaseView):
         super().__init__(conn, parent)
         self._service = GoalService(conn)
         self._repo = GoalRepository(conn)
+        self._account_repo = AccountRepository(conn)
         self._build()
         self.refresh()
 
@@ -288,12 +290,26 @@ class GoalsView(BaseView):
         )
         action = "Pay" if goal.kind == "debt" else "Contribute"
         max_value = goal.target_amount - goal.current_amount  # don't overshoot
-        dlg = ContributionDialog(title, action, max_value=max_value, parent=self)
+        accounts = self._account_repo.list()
+        dlg = ContributionDialog(
+            title, action,
+            max_value=max_value,
+            accounts=accounts,
+            parent=self,
+        )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             amt = dlg.amount_minor()
-            if amt:
-                self._service.contribute(goal.id, amt)
-                self.refresh()
+            if not amt:
+                return
+            transfer = dlg.transfer_accounts()
+            from_id = transfer[0] if transfer else None
+            to_id = transfer[1] if transfer else None
+            self._service.contribute(
+                goal.id, amt,
+                transfer_from_id=from_id,
+                transfer_to_id=to_id,
+            )
+            self.refresh()
 
     def _withdraw(self, progress: GoalProgress) -> None:
         goal = progress.goal
@@ -304,9 +320,23 @@ class GoalsView(BaseView):
         if max_value <= 0:
             QMessageBox.information(self, "Nothing to withdraw", "This goal has no funds yet.")
             return
-        dlg = ContributionDialog(title, "Withdraw", max_value=max_value, parent=self)
+        accounts = self._account_repo.list()
+        dlg = ContributionDialog(
+            title, "Withdraw",
+            max_value=max_value,
+            accounts=accounts,
+            parent=self,
+        )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             amt = dlg.amount_minor()
-            if amt:
-                self._service.contribute(goal.id, -amt)
-                self.refresh()
+            if not amt:
+                return
+            transfer = dlg.transfer_accounts()
+            from_id = transfer[0] if transfer else None
+            to_id = transfer[1] if transfer else None
+            self._service.contribute(
+                goal.id, -amt,
+                transfer_from_id=from_id,
+                transfer_to_id=to_id,
+            )
+            self.refresh()

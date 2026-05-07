@@ -418,6 +418,80 @@ def test_goal_contribute_via_service(db):
     assert GoalRepository(db).get(g.id).current_amount == 3000
 
 
+def test_goal_contribute_with_transfer_posts_real_money(db):
+    """Contribute to a savings goal AND mirror it as a transfer between
+    two real accounts. Both the goal counter and the account balances
+    should reflect the move."""
+    checking = AccountRepository(db).add(Account(None, "Checking", "checking", opening_balance=100000))
+    savings = AccountRepository(db).add(Account(None, "Savings", "savings", opening_balance=0))
+    g = GoalRepository(db).add(Goal(None, "Trip", "savings", 50000, 0))
+
+    GoalService(db).contribute(
+        g.id, 20000,
+        transfer_from_id=checking.id,
+        transfer_to_id=savings.id,
+    )
+
+    assert GoalRepository(db).get(g.id).current_amount == 20000
+    balances = AccountService(db).balances()
+    assert balances[checking.id] == 80000     # 1000 → 800
+    assert balances[savings.id] == 20000      # 0 → 200
+
+
+def test_goal_withdraw_with_transfer_reverses_direction(db):
+    """A withdrawal is a negative delta; the user picks from = savings,
+    to = checking, so real money flows back from savings to checking."""
+    checking = AccountRepository(db).add(Account(None, "Checking", "checking", opening_balance=20000))
+    savings = AccountRepository(db).add(Account(None, "Savings", "savings", opening_balance=80000))
+    g = GoalRepository(db).add(Goal(None, "Trip", "savings", 50000, 80000))
+
+    GoalService(db).contribute(
+        g.id, -30000,
+        transfer_from_id=savings.id,
+        transfer_to_id=checking.id,
+    )
+
+    assert GoalRepository(db).get(g.id).current_amount == 50000
+    balances = AccountService(db).balances()
+    assert balances[savings.id] == 50000      # 800 − 300
+    assert balances[checking.id] == 50000     # 200 + 300
+
+
+def test_goal_contribute_without_transfer_only_bumps_progress(db):
+    """If neither transfer account is provided, behaviour matches the old
+    contribute(): only the goal counter changes, no transactions."""
+    checking = AccountRepository(db).add(Account(None, "Checking", "checking", opening_balance=100000))
+    g = GoalRepository(db).add(Goal(None, "Save", "savings", 50000, 0))
+
+    GoalService(db).contribute(g.id, 5000)
+
+    assert GoalRepository(db).get(g.id).current_amount == 5000
+    assert AccountService(db).balance_for(checking.id) == 100000   # untouched
+    assert TransactionRepository(db).list() == []
+
+
+def test_goal_contribute_rejects_partial_transfer_args(db):
+    g = GoalRepository(db).add(Goal(None, "Save", "savings", 50000, 0))
+    acct = AccountRepository(db).add(Account(None, "Bank", "checking"))
+
+    with pytest.raises(ValueError, match="Provide both"):
+        GoalService(db).contribute(g.id, 1000, transfer_from_id=acct.id)
+    with pytest.raises(ValueError, match="Provide both"):
+        GoalService(db).contribute(g.id, 1000, transfer_to_id=acct.id)
+
+
+def test_goal_contribute_rejects_same_source_and_destination(db):
+    g = GoalRepository(db).add(Goal(None, "Save", "savings", 50000, 0))
+    acct = AccountRepository(db).add(Account(None, "Bank", "checking"))
+
+    with pytest.raises(ValueError, match="must differ"):
+        GoalService(db).contribute(
+            g.id, 1000,
+            transfer_from_id=acct.id,
+            transfer_to_id=acct.id,
+        )
+
+
 # ---- summary service ----
 
 def test_summary_kpis(db):
