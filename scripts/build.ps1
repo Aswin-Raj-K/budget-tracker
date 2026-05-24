@@ -95,10 +95,12 @@ if (-not $SkipInstaller) {
     if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "PyInstaller (uninstaller) failed"; exit 1 }
     Pop-Location
 
-    $UninstallerDestDir = Join-Path $BuildDir "uninstaller"
+    $UninstallerDestDir  = Join-Path $BuildDir "uninstaller"
     New-Item -ItemType Directory -Force $UninstallerDestDir | Out-Null
-    $UninstallerSrc = Join-Path $InstallerSrc "dist\BudgetTrackerUninstall.exe"
-    Move-Item -Force $UninstallerSrc (Join-Path $UninstallerDestDir "BudgetTrackerUninstall.exe")
+    $UninstallerSrc  = Join-Path $InstallerSrc "dist\BudgetTrackerUninstall.exe"
+    $UninstallerDest = Join-Path $UninstallerDestDir "BudgetTrackerUninstall.exe"
+    if (Test-Path $UninstallerDest) { Remove-Item $UninstallerDest -Force }
+    Move-Item $UninstallerSrc $UninstallerDest
     Write-Host "      => build\uninstaller\BudgetTrackerUninstall.exe" -ForegroundColor Green
 
     # -------------------------------------------------------------------------
@@ -121,7 +123,8 @@ if (-not $SkipInstaller) {
     $SetupSrc  = Join-Path $InstallerSrc "dist\BudgetTrackerSetup.exe"
     $SetupDest = Join-Path $DistDir "BudgetTracker-$AppVersion-Setup.exe"
     New-Item -ItemType Directory -Force $DistDir | Out-Null
-    Move-Item -Force $SetupSrc $SetupDest
+    if (Test-Path $SetupDest) { Remove-Item $SetupDest -Force }
+    Move-Item $SetupSrc $SetupDest
     Write-Host "      => dist\BudgetTracker-$AppVersion-Setup.exe" -ForegroundColor Green
 } else {
     Write-Host "`n[4-6/6] Skipped (SkipInstaller)" -ForegroundColor DarkGray
