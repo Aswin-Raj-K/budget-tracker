@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import winreg
 import zipfile
 from pathlib import Path
@@ -37,17 +38,35 @@ def _bundle_root() -> Path:
 
 
 def _make_shortcut(lnk_path: str, target: str, work_dir: str) -> None:
-    ps = (
-        f'$s=(New-Object -COM WScript.Shell).CreateShortcut("{lnk_path}");'
-        f'$s.TargetPath="{target}";'
-        f'$s.WorkingDirectory="{work_dir}";'
-        f'$s.Save()'
+    # Normalise to backslashes — WScript.Shell is picky about forward slashes.
+    lnk_path = str(Path(lnk_path))
+    target   = str(Path(target))
+    work_dir = str(Path(work_dir))
+
+    # Write a temp .ps1 file and run with -File to avoid the double-quote
+    # escaping hell that -Command causes when subprocess wraps the arg in
+    # its own quotes on Windows.
+    script = (
+        "$s = New-Object -COM WScript.Shell\n"
+        f'$sc = $s.CreateShortcut("{lnk_path}")\n'
+        f'$sc.TargetPath = "{target}"\n'
+        f'$sc.WorkingDirectory = "{work_dir}"\n'
+        "$sc.Save()\n"
     )
-    subprocess.run(
-        ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
-        check=True,
-        creationflags=subprocess.CREATE_NO_WINDOW,
-    )
+    fd, tmp = tempfile.mkstemp(suffix=".ps1")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(script)
+        subprocess.run(
+            [
+                "powershell", "-NoProfile", "-NonInteractive",
+                "-ExecutionPolicy", "Bypass", "-File", tmp,
+            ],
+            check=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    finally:
+        os.unlink(tmp)
 
 
 # ---------------------------------------------------------------------------
