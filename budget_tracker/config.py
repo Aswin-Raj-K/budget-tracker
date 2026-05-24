@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 APP_NAME = "BudgetTracker"
@@ -59,8 +60,14 @@ def db_path() -> Path:
     return default_db_path()
 
 
-PACKAGE_ROOT = Path(__file__).resolve().parent
+def _package_root() -> Path:
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS) / "budget_tracker"
+    return Path(__file__).resolve().parent
+
+
+PACKAGE_ROOT   = _package_root()
 MIGRATIONS_DIR = PACKAGE_ROOT / "core" / "migrations"
-STYLES_DIR = PACKAGE_ROOT / "ui" / "styles"
-THEMES_DIR = STYLES_DIR / "themes"
-ICONS_DIR = PACKAGE_ROOT / "ui" / "icons"
+STYLES_DIR     = PACKAGE_ROOT / "ui" / "styles"
+THEMES_DIR     = STYLES_DIR / "themes"
+ICONS_DIR      = PACKAGE_ROOT / "ui" / "icons"

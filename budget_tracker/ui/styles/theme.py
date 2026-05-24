@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Optional
 
-PACKAGE_DIR = Path(__file__).resolve().parent
-THEMES_DIR = PACKAGE_DIR / "themes"
+
+def _styles_root() -> Path:
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS) / "budget_tracker" / "ui" / "styles"
+    return Path(__file__).resolve().parent
+
+
+PACKAGE_DIR = _styles_root()
+THEMES_DIR  = PACKAGE_DIR / "themes"
 
 
 @dataclass(frozen=True)
