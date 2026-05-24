@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import shutil
 
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QAction, QDesktopServices
+from PySide6.QtCore import Qt, QObject, QThread, QUrl
+from PySide6.QtCore import Signal
+from PySide6.QtGui import QAction, QCursor, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -35,6 +36,18 @@ from budget_tracker.ui.styles import apply_theme, available_themes
 from budget_tracker.ui.views.base import BaseView
 from budget_tracker.ui.widgets.progress_row import ColorDot
 from budget_tracker.ui.widgets.section_card import SectionCard
+
+
+class _UpdateWorker(QObject):
+    done  = Signal(bool, str, str)  # has_update, version, url
+    error = Signal(str)
+
+    def run(self) -> None:
+        try:
+            from budget_tracker.services.update_service import check_for_update
+            self.done.emit(*check_for_update())
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(str(exc))
 
 
 _TYPE_LABELS = {
@@ -202,17 +215,22 @@ class SettingsView(BaseView):
     def _build_about_card(self, parent) -> SectionCard:
         card = SectionCard("About", parent=parent)
         body = card.body_layout()
-        name = QLabel("Budget Tracker")
+        name = QLabel("Budget Tracker", card)
         name.setProperty("class", "h3")
-        ver = QLabel(f"Version {__version__}")
+        ver = QLabel(f"Version {__version__}", card)
         ver.setProperty("class", "subtle")
-        info = QLabel("A modern, locally-stored personal budget tracker built with PySide 6.")
+        info = QLabel("A modern, locally-stored personal budget tracker built with PySide 6.", card)
         info.setProperty("class", "muted")
         info.setWordWrap(True)
+        self._check_updates_btn = QPushButton("Check for updates", card)
+        self._check_updates_btn.setProperty("class", "ghost")
+        self._check_updates_btn.clicked.connect(self._check_for_updates)
         body.addWidget(name)
         body.addWidget(ver)
         body.addSpacing(2)
         body.addWidget(info)
+        body.addSpacing(6)
+        body.addWidget(self._check_updates_btn)
         return card
 
     # ---------- data binding ----------
@@ -410,6 +428,13 @@ class SettingsView(BaseView):
 
         layout.addWidget(edit)
         layout.addWidget(archive)
+
+        if not self.category_repo.is_used(c.id):  # type: ignore[arg-type]
+            delete = QPushButton("Delete", row)
+            delete.setProperty("class", "ghost")
+            delete.clicked.connect(lambda _checked=False, cat=c: self._delete_category(cat))
+            layout.addWidget(delete)
+
         return row
 
     # ---------- handlers ----------
@@ -464,6 +489,59 @@ class SettingsView(BaseView):
         c.archived = not c.archived
         self.category_repo.update(c)
         self._populate_categories()
+
+    def _delete_category(self, c: Category) -> None:
+        answer = QMessageBox.question(
+            self,
+            "Delete category",
+            f'Permanently delete "{c.name}"? This cannot be undone.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.category_repo.delete(c.id)  # type: ignore[arg-type]
+        self._populate_categories()
+
+    # ---- update check ----
+
+    def _check_for_updates(self) -> None:
+        self._check_updates_btn.setEnabled(False)
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+        self._update_thread = QThread(self)
+        self._update_worker = _UpdateWorker()
+        self._update_worker.moveToThread(self._update_thread)
+        self._update_thread.started.connect(self._update_worker.run)
+        self._update_worker.done.connect(self._on_update_done)
+        self._update_worker.error.connect(self._on_update_error)
+        self._update_worker.done.connect(self._update_thread.quit)
+        self._update_worker.error.connect(self._update_thread.quit)
+        self._update_thread.finished.connect(self._update_thread.deleteLater)
+        self._update_thread.start()
+
+    def _on_update_done(self, has_update: bool, version: str, url: str) -> None:
+        QApplication.restoreOverrideCursor()
+        self._check_updates_btn.setEnabled(True)
+        if has_update:
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Update available")
+            msg.setIcon(QMessageBox.Icon.Information)
+            msg.setText(f"Version {version} is available.")
+            msg.setInformativeText("Would you like to open the download page?")
+            open_btn = msg.addButton("Open download page", QMessageBox.ButtonRole.AcceptRole)
+            msg.addButton(QMessageBox.StandardButton.Close)
+            msg.exec()
+            if msg.clickedButton() is open_btn:
+                QDesktopServices.openUrl(QUrl(url))
+        else:
+            QMessageBox.information(self, "Up to date", "You're already on the latest version.")
+
+    def _on_update_error(self, message: str) -> None:
+        QApplication.restoreOverrideCursor()
+        self._check_updates_btn.setEnabled(True)
+        QMessageBox.warning(
+            self, "Update check failed",
+            f"Could not reach the update server:\n{message}",
+        )
 
     # ---- data actions ----
 
