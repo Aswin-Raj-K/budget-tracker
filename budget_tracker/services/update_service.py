@@ -25,9 +25,8 @@ def check_for_update() -> tuple[bool, str, str]:
         (has_update, latest_version_str, html_url)
 
     Raises:
-        urllib.error.URLError  — network unreachable
-        urllib.error.HTTPError — bad HTTP response
-        ValueError             — unexpected JSON structure
+        urllib.error.URLError — network unreachable
+        ValueError            — unexpected JSON structure
     """
     req = urllib.request.Request(
         _API_URL,
@@ -36,7 +35,15 @@ def check_for_update() -> tuple[bool, str, str]:
             "User-Agent": f"BudgetTracker/{__version__}",
         },
     )
-    with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+    try:
+        resp_ctx = urllib.request.urlopen(req, timeout=_TIMEOUT)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            # No releases published yet — treat as "you're up to date".
+            return False, __version__, ""
+        raise
+
+    with resp_ctx as resp:
         body = json.loads(resp.read().decode("utf-8"))
 
     tag_name = body.get("tag_name", "")
