@@ -64,8 +64,22 @@ if (-not $SkipApp) {
     Write-Host "`n[3/6] Zipping app bundle…" -ForegroundColor Cyan
     New-Item -ItemType Directory -Force $BuildDir | Out-Null
     $AppBundleZip = Join-Path $BuildDir "app_bundle.zip"
-    if (Test-Path $AppBundleZip) { Remove-Item $AppBundleZip -Force }
-    Compress-Archive -Path "$DistDir\Budget Tracker\*" -DestinationPath $AppBundleZip
+    # Use Python's zipfile instead of Compress-Archive — Python opens files
+    # with shared read access so it handles locked files (base_library.zip,
+    # AV scans) that Compress-Archive chokes on.
+    python -c @"
+import zipfile, sys
+from pathlib import Path
+src = Path(r'$DistDir\Budget Tracker')
+dst = Path(r'$AppBundleZip')
+dst.unlink(missing_ok=True)
+with zipfile.ZipFile(dst, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+    for f in sorted(src.rglob('*')):
+        if f.is_file():
+            zf.write(f, f.relative_to(src))
+print(f'Zipped {dst.stat().st_size // 1024 // 1024} MB')
+"@
+    if ($LASTEXITCODE -ne 0) { Write-Error "Zip step failed"; exit 1 }
     Write-Host "      => build\app_bundle.zip" -ForegroundColor Green
 } else {
     Write-Host "`n[3/6] Skipped (SkipApp)" -ForegroundColor DarkGray
