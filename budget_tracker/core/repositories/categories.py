@@ -120,6 +120,14 @@ class CategoryRepository:
         self.conn.commit()
         return self.get(category.id)
 
+    def is_used(self, category_id: int) -> bool:
+        """Return True if any transaction references this category directly."""
+        row = self.conn.execute(
+            "SELECT 1 FROM transactions WHERE category_id = ? LIMIT 1",
+            (category_id,),
+        ).fetchone()
+        return row is not None
+
     def delete(self, category_id: int) -> None:
         # Promote any children to top-level so they don't disappear with their
         # parent. This is the SET-NULL behaviour we'd otherwise rely on the FK
