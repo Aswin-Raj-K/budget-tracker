@@ -5,7 +5,6 @@ block_cipher = None
 
 datas = [
     ("budget_tracker/core/migrations/*.sql",   "budget_tracker/core/migrations"),
-    ("budget_tracker/ui/styles/*.qss",         "budget_tracker/ui/styles"),
     ("budget_tracker/ui/styles/*.template",    "budget_tracker/ui/styles"),
     ("budget_tracker/ui/styles/themes/*.json", "budget_tracker/ui/styles/themes"),
     ("budget_tracker/ui/icons/*.svg",          "budget_tracker/ui/icons"),
