@@ -1,122 +1,131 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Build and publish a GitHub release for Budget Tracker.
+    Bump version, build the installer, and push a release tag.
 
 .DESCRIPTION
-    1. Reads the version from budget_tracker/__init__.py
-    2. Runs build.ps1 to produce the installer (unless -SkipBuild)
-    3. Creates and pushes an annotated git tag  v<version>
-    4. Creates a GitHub release via the gh CLI with the setup exe as the asset
+    1. Fetches tags from origin and finds the latest version tag
+    2. Prompts for patch / minor / major bump (or pass a flag)
+    3. Updates __version__ in budget_tracker/__init__.py
+    4. Runs build.ps1 (unless -SkipBuild)
+    5. Commits the version bump and tags the commit
+    6. Pushes the commit and tag to origin
 
-    Works with custom SSH host aliases (e.g. git@github-personal:owner/repo.git)
-    by extracting the owner/repo slug and passing --repo to all gh calls.
+.PARAMETER Patch
+    Bump the patch component: 1.2.3 -> 1.2.4
+
+.PARAMETER Minor
+    Bump the minor component: 1.2.3 -> 1.3.0
+
+.PARAMETER Major
+    Bump the major component: 1.2.3 -> 2.0.0
 
 .PARAMETER SkipBuild
-    Skip running build.ps1. Expects dist/BudgetTracker-<version>-Setup.exe to
-    already exist (useful when you just want to re-publish a build).
-
-.PARAMETER Draft
-    Create the release as a draft so you can review and edit it on GitHub
-    before it goes public.
-
-.PARAMETER Prerelease
-    Mark the release as a pre-release (alpha/beta/rc).
-
-.PARAMETER Notes
-    Release body text. If omitted, GitHub auto-generates notes from commits
-    since the previous tag.
+    Skip running build.ps1 (uses an existing dist/BudgetTracker-*-Setup.exe).
 
 .EXAMPLE
     .\scripts\release.ps1
-    Build + tag + publish.
+    Interactive: shows current version, prompts for bump type.
 
 .EXAMPLE
-    .\scripts\release.ps1 -SkipBuild -Draft
-    Publish an already-built installer as a draft release.
+    .\scripts\release.ps1 -Patch -SkipBuild
+    Non-interactive patch bump, skip the build step.
 #>
 param(
-    [switch]$SkipBuild,
-    [switch]$Draft,
-    [switch]$Prerelease,
-    [string]$Notes = ""
+    [switch]$Patch,
+    [switch]$Minor,
+    [switch]$Major,
+    [switch]$SkipBuild
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$Root = Split-Path -Parent $PSScriptRoot
+$Root     = Split-Path -Parent $PSScriptRoot
+$InitFile = Join-Path $Root "budget_tracker\__init__.py"
 
 # ---------------------------------------------------------------------------
-# Step 1 - Read version
+# Step 1 - Find the latest version tag (local + remote)
 # ---------------------------------------------------------------------------
-$InitFile    = Join-Path $Root "budget_tracker\__init__.py"
-$VersionLine = Get-Content $InitFile |
-               Where-Object { $_ -match '__version__' } |
-               Select-Object -First 1
+Write-Host "Fetching tags from origin..." -ForegroundColor Cyan
+git fetch --tags --quiet
 
-if ($VersionLine -match '"([^"]+)"' -or $VersionLine -match "'([^']+)'") {
-    $AppVersion = $Matches[1]
+$LatestTag = git tag --sort=-v:refname 2>&1 |
+             Where-Object { $_ -match '^v\d+\.\d+\.\d+$' } |
+             Select-Object -First 1
+
+if ($LatestTag) {
+    $CurrentVersion = $LatestTag.TrimStart('v')
+    Write-Host "Latest tag: $LatestTag" -ForegroundColor White
 } else {
-    Write-Error "Cannot parse __version__ from $InitFile"
-    exit 1
+    # No tags yet: use the version in __init__.py as the baseline
+    $vline = Get-Content $InitFile | Where-Object { $_ -match '__version__' } | Select-Object -First 1
+    if ($vline -match '"([^"]+)"' -or $vline -match "'([^']+)'") {
+        $CurrentVersion = $Matches[1]
+    } else {
+        $CurrentVersion = "0.0.0"
+    }
+    Write-Host "No version tags found. Using $CurrentVersion as baseline." -ForegroundColor Yellow
 }
 
-$Tag = "v$AppVersion"
-Write-Host "Release: Budget Tracker $AppVersion  (tag: $Tag)" -ForegroundColor Cyan
+$parts   = $CurrentVersion -split '\.'
+$Maj = [int]$parts[0]; $Min = [int]$parts[1]; $Pat = [int]$parts[2]
 
 # ---------------------------------------------------------------------------
-# Step 2 - Resolve GitHub repo slug from the remote URL
-#   Handles all remote formats:
-#     https://github.com/owner/repo.git
-#     git@github.com:owner/repo.git
-#     git@github-personal:owner/repo.git   (SSH alias)
+# Step 2 - Determine bump type
 # ---------------------------------------------------------------------------
-$RemoteUrl = git remote get-url origin 2>&1
-if ($RemoteUrl -match '[:/]([^/:]+/[^/]+?)(?:\.git)?$') {
-    $RepoSlug = $Matches[1]
-} else {
-    Write-Error "Cannot parse owner/repo from remote URL: $RemoteUrl"
-    exit 1
-}
-Write-Host "Repo:    $RepoSlug" -ForegroundColor Cyan
-
-# ---------------------------------------------------------------------------
-# Step 3 - Verify prerequisites
-# ---------------------------------------------------------------------------
-if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
-    Write-Error "GitHub CLI (gh) not found. Install from https://cli.github.com and run 'gh auth login' once."
-    exit 1
+if (-not ($Patch -or $Minor -or $Major)) {
+    Write-Host ""
+    Write-Host "Current version: $CurrentVersion" -ForegroundColor White
+    Write-Host "  [1] Patch  ->  $Maj.$Min.$($Pat + 1)"
+    Write-Host "  [2] Minor  ->  $Maj.$($Min + 1).0"
+    Write-Host "  [3] Major  ->  $($Maj + 1).0.0"
+    $choice = Read-Host "Bump type [1/2/3]"
+    switch ($choice.Trim()) {
+        "1" { $Patch = $true }
+        "2" { $Minor = $true }
+        "3" { $Major = $true }
+        default { Write-Error "Invalid choice. Aborting."; exit 1 }
+    }
 }
 
-$null = gh auth status 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Not authenticated with gh. Run: gh auth login"
-    exit 1
-}
+$NewVersion = if ($Major) { "$($Maj+1).0.0" }
+              elseif ($Minor) { "$Maj.$($Min+1).0" }
+              else { "$Maj.$Min.$($Pat+1)" }
+$NewTag = "v$NewVersion"
+
+Write-Host "`n$CurrentVersion  ->  $NewVersion  (tag: $NewTag)" -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
-# Step 4 - Guard: no dirty working tree, tag must not exist
+# Step 3 - Guards
 # ---------------------------------------------------------------------------
+# Clean working tree required (we will make a commit ourselves)
 $dirty = git status --porcelain 2>&1
 if ($dirty) {
-    Write-Warning "Working tree has uncommitted changes:"
-    Write-Host $dirty -ForegroundColor Yellow
-    $ans = Read-Host "Continue anyway? [y/N]"
-    if ($ans -notmatch '^[Yy]') { exit 1 }
-}
-
-$existingTag = git tag -l $Tag
-if ($existingTag) {
-    Write-Error ("Tag $Tag already exists locally. Delete it first:`n  git tag -d $Tag`n  git push origin :refs/tags/$Tag")
+    Write-Error "Working tree has uncommitted changes. Commit or stash them first."
     exit 1
 }
 
-$remoteTags = git ls-remote --tags origin "refs/tags/$Tag" 2>&1
-if ($remoteTags -match $Tag) {
-    Write-Error ("Tag $Tag already exists on origin. Delete it first:`n  git push origin :refs/tags/$Tag")
+if (git tag -l $NewTag) {
+    Write-Error "Tag $NewTag already exists locally. Delete it first: git tag -d $NewTag"
     exit 1
 }
+
+$remoteCheck = git ls-remote --tags origin "refs/tags/$NewTag" 2>&1
+if ($remoteCheck -match [regex]::Escape($NewTag)) {
+    Write-Error "Tag $NewTag already exists on origin."
+    exit 1
+}
+
+# ---------------------------------------------------------------------------
+# Step 4 - Update __version__ in __init__.py
+# ---------------------------------------------------------------------------
+$initContent = Get-Content $InitFile -Raw
+$initContent = $initContent -replace `
+    '__version__\s*=\s*["''][^"'']+["'']', `
+    "__version__ = `"$NewVersion`""
+[System.IO.File]::WriteAllText($InitFile, $initContent, (New-Object System.Text.UTF8Encoding $false))
+Write-Host "Updated $InitFile" -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
 # Step 5 - Build
@@ -124,66 +133,46 @@ if ($remoteTags -match $Tag) {
 if (-not $SkipBuild) {
     Write-Host "`nRunning build.ps1..." -ForegroundColor Cyan
     & "$PSScriptRoot\build.ps1"
-    if ($LASTEXITCODE -ne 0) { Write-Error "build.ps1 failed - aborting release."; exit 1 }
+    if ($LASTEXITCODE -ne 0) {
+        # Restore __init__.py so the repo is not left in a half-bumped state
+        git checkout -- $InitFile
+        Write-Error "build.ps1 failed. Reverted __init__.py."
+        exit 1
+    }
 } else {
     Write-Host "`n[build] Skipped (-SkipBuild)" -ForegroundColor DarkGray
 }
 
-# ---------------------------------------------------------------------------
-# Step 6 - Verify setup exe
-# ---------------------------------------------------------------------------
-$SetupExe = Join-Path $Root "dist\BudgetTracker-$AppVersion-Setup.exe"
+$SetupExe = Join-Path $Root "dist\BudgetTracker-$NewVersion-Setup.exe"
 if (-not (Test-Path $SetupExe)) {
-    Write-Error "Setup exe not found: $SetupExe`nRun build.ps1 first, or omit -SkipBuild."
+    git checkout -- $InitFile
+    Write-Error "Setup exe not found: $SetupExe`nReverted __init__.py."
     exit 1
 }
 $SizeMB = [math]::Round((Get-Item $SetupExe).Length / 1MB, 1)
-Write-Host "`nAsset: $(Split-Path -Leaf $SetupExe)  ($SizeMB MB)" -ForegroundColor Green
+Write-Host "Asset:  $(Split-Path -Leaf $SetupExe)  ($SizeMB MB)" -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
-# Step 7 - Create and push the git tag
+# Step 6 - Commit version bump and tag
 # ---------------------------------------------------------------------------
-Write-Host "`nTagging commit as $Tag..." -ForegroundColor Cyan
-git tag -a $Tag -m "Release $AppVersion"
-git push origin $Tag
-if ($LASTEXITCODE -ne 0) {
-    git tag -d $Tag | Out-Null
-    Write-Error "git push tag failed - local tag removed. Fix the push issue and retry."
-    exit 1
-}
-Write-Host "      Tag pushed." -ForegroundColor Green
+Write-Host "`nCommitting version bump..." -ForegroundColor Cyan
+
+# Stage only __init__.py (nothing else should be modified)
+git add (Join-Path "budget_tracker" "__init__.py")
+git commit -m "chore: bump version to $NewVersion"
+
+git tag -a $NewTag -m "Release $NewVersion"
+Write-Host "Tagged $NewTag" -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
-# Step 8 - Create GitHub release
+# Step 7 - Push commit + tag
 # ---------------------------------------------------------------------------
-Write-Host "`nCreating GitHub release..." -ForegroundColor Cyan
+Write-Host "`nPushing..." -ForegroundColor Cyan
+git push origin HEAD
+if ($LASTEXITCODE -ne 0) { Write-Error "git push (commit) failed."; exit 1 }
 
-$ghArgs = @(
-    "release", "create", $Tag,
-    $SetupExe,
-    "--repo",  $RepoSlug,
-    "--title", "Budget Tracker $AppVersion"
-)
+git push origin $NewTag
+if ($LASTEXITCODE -ne 0) { Write-Error "git push (tag) failed."; exit 1 }
 
-if ($Draft)      { $ghArgs += "--draft" }
-if ($Prerelease) { $ghArgs += "--prerelease" }
-
-if ($Notes) {
-    $ghArgs += "--notes"
-    $ghArgs += $Notes
-} else {
-    $ghArgs += "--generate-notes"
-}
-
-$ReleaseUrl = gh @ghArgs
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "gh release create failed. Tag $Tag is on origin - delete it before retrying:`n  git push origin :refs/tags/$Tag"
-    exit 1
-}
-
-Write-Host "`nDone." -ForegroundColor Green
-if ($Draft) {
-    Write-Host "Draft release (not yet public): $ReleaseUrl" -ForegroundColor Yellow
-} else {
-    Write-Host "Published: $ReleaseUrl" -ForegroundColor Cyan
-}
+Write-Host "`nDone. Tag $NewTag is live on origin." -ForegroundColor Green
+Write-Host "Installer: dist\BudgetTracker-$NewVersion-Setup.exe" -ForegroundColor White
