@@ -9,6 +9,9 @@
     3. Creates and pushes an annotated git tag  v<version>
     4. Creates a GitHub release via the gh CLI with the setup exe as the asset
 
+    Works with custom SSH host aliases (e.g. git@github-personal:owner/repo.git)
+    by extracting the owner/repo slug and passing --repo to all gh calls.
+
 .PARAMETER SkipBuild
     Skip running build.ps1. Expects dist/BudgetTracker-<version>-Setup.exe to
     already exist (useful when you just want to re-publish a build).
@@ -63,14 +66,29 @@ $Tag = "v$AppVersion"
 Write-Host "Release: Budget Tracker $AppVersion  (tag: $Tag)" -ForegroundColor Cyan
 
 # ---------------------------------------------------------------------------
-# Step 2 - Verify prerequisites
+# Step 2 - Resolve GitHub repo slug from the remote URL
+#   Handles all remote formats:
+#     https://github.com/owner/repo.git
+#     git@github.com:owner/repo.git
+#     git@github-personal:owner/repo.git   (SSH alias)
+# ---------------------------------------------------------------------------
+$RemoteUrl = git remote get-url origin 2>&1
+if ($RemoteUrl -match '[:/]([^/:]+/[^/]+?)(?:\.git)?$') {
+    $RepoSlug = $Matches[1]
+} else {
+    Write-Error "Cannot parse owner/repo from remote URL: $RemoteUrl"
+    exit 1
+}
+Write-Host "Repo:    $RepoSlug" -ForegroundColor Cyan
+
+# ---------------------------------------------------------------------------
+# Step 3 - Verify prerequisites
 # ---------------------------------------------------------------------------
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
     Write-Error "GitHub CLI (gh) not found. Install from https://cli.github.com and run 'gh auth login' once."
     exit 1
 }
 
-# Ensure we are authenticated
 $null = gh auth status 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Not authenticated with gh. Run: gh auth login"
@@ -78,7 +96,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ---------------------------------------------------------------------------
-# Step 3 - Guard: no dirty working tree, tag must be new
+# Step 4 - Guard: no dirty working tree, tag must not exist
 # ---------------------------------------------------------------------------
 $dirty = git status --porcelain 2>&1
 if ($dirty) {
@@ -90,19 +108,18 @@ if ($dirty) {
 
 $existingTag = git tag -l $Tag
 if ($existingTag) {
-    Write-Error ("Tag $Tag already exists locally. Delete it first: git tag -d $Tag && git push origin :refs/tags/$Tag")
+    Write-Error ("Tag $Tag already exists locally. Delete it first:`n  git tag -d $Tag`n  git push origin :refs/tags/$Tag")
     exit 1
 }
 
-# Check remote too (avoids a push failure later)
 $remoteTags = git ls-remote --tags origin "refs/tags/$Tag" 2>&1
 if ($remoteTags -match $Tag) {
-    Write-Error "Tag $Tag already exists on origin. Bump __version__ or delete the remote tag first."
+    Write-Error ("Tag $Tag already exists on origin. Delete it first:`n  git push origin :refs/tags/$Tag")
     exit 1
 }
 
 # ---------------------------------------------------------------------------
-# Step 4 - Build
+# Step 5 - Build
 # ---------------------------------------------------------------------------
 if (-not $SkipBuild) {
     Write-Host "`nRunning build.ps1..." -ForegroundColor Cyan
@@ -113,7 +130,7 @@ if (-not $SkipBuild) {
 }
 
 # ---------------------------------------------------------------------------
-# Step 5 - Verify setup exe
+# Step 6 - Verify setup exe
 # ---------------------------------------------------------------------------
 $SetupExe = Join-Path $Root "dist\BudgetTracker-$AppVersion-Setup.exe"
 if (-not (Test-Path $SetupExe)) {
@@ -124,13 +141,12 @@ $SizeMB = [math]::Round((Get-Item $SetupExe).Length / 1MB, 1)
 Write-Host "`nAsset: $(Split-Path -Leaf $SetupExe)  ($SizeMB MB)" -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
-# Step 6 - Create and push the git tag
+# Step 7 - Create and push the git tag
 # ---------------------------------------------------------------------------
 Write-Host "`nTagging commit as $Tag..." -ForegroundColor Cyan
 git tag -a $Tag -m "Release $AppVersion"
 git push origin $Tag
 if ($LASTEXITCODE -ne 0) {
-    # Roll back local tag so the script can be re-run cleanly
     git tag -d $Tag | Out-Null
     Write-Error "git push tag failed - local tag removed. Fix the push issue and retry."
     exit 1
@@ -138,13 +154,14 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "      Tag pushed." -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
-# Step 7 - Create GitHub release
+# Step 8 - Create GitHub release
 # ---------------------------------------------------------------------------
 Write-Host "`nCreating GitHub release..." -ForegroundColor Cyan
 
 $ghArgs = @(
     "release", "create", $Tag,
     $SetupExe,
+    "--repo",  $RepoSlug,
     "--title", "Budget Tracker $AppVersion"
 )
 
@@ -160,7 +177,7 @@ if ($Notes) {
 
 $ReleaseUrl = gh @ghArgs
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "gh release create failed. Tag $Tag was pushed - delete it if retrying: git push origin :refs/tags/$Tag"
+    Write-Error "gh release create failed. Tag $Tag is on origin - delete it before retrying:`n  git push origin :refs/tags/$Tag"
     exit 1
 }
 
