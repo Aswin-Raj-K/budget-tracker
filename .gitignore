@@ -12,6 +12,7 @@ __pycache__/
 htmlcov/
 build/
 dist/
+.ruff_cache
 
 # IDE
 .vscode/
