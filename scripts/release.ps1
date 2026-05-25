@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Bump version, build the installer, and push a release tag.
+    Bump version, build the installer, push a tag, and publish a GitHub release.
 
 .DESCRIPTION
     Normal flow (no -SkipBuild):
@@ -10,29 +10,43 @@
       3. Updates __version__ in budget_tracker/__init__.py
       4. Runs build.ps1
       5. Commits the version bump, tags it, and pushes commit + tag
+      6. Creates a GitHub release via the REST API and uploads the installer
 
     -SkipBuild flow:
       Finds the newest BudgetTracker-*-Setup.exe already in dist\,
-      reads its version from the filename, then tags and pushes
+      reads its version from the filename, then tags, pushes, and publishes
       without touching __init__.py or rebuilding.
+
+    GitHub release creation uses the REST API directly (only needs the
+    "repo" scope -- no "workflow" scope required). The token is read from
+    "gh auth token".
 
 .PARAMETER Patch / Minor / Major
     Which version component to bump. Ignored when -SkipBuild is used.
     If none supplied in normal mode, prompts interactively.
 
 .PARAMETER SkipBuild
-    Skip the build. Tags and pushes whatever exe is already in dist\.
+    Skip the build. Uses whatever exe is already in dist\.
+
+.PARAMETER Draft
+    Create the GitHub release as a draft.
+
+.PARAMETER Prerelease
+    Mark the GitHub release as a pre-release.
 
 .EXAMPLE
-    .\scripts\release.ps1            # interactive bump + build
-    .\scripts\release.ps1 -Minor     # non-interactive minor bump + build
-    .\scripts\release.ps1 -SkipBuild # tag the already-built installer
+    .\scripts\release.ps1            # interactive bump + build + publish
+    .\scripts\release.ps1 -Minor     # non-interactive minor bump
+    .\scripts\release.ps1 -SkipBuild # publish the already-built installer
+    .\scripts\release.ps1 -SkipBuild -Draft  # publish as draft for review
 #>
 param(
     [switch]$Patch,
     [switch]$Minor,
     [switch]$Major,
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$Draft,
+    [switch]$Prerelease
 )
 
 Set-StrictMode -Version Latest
@@ -47,10 +61,23 @@ $InitFile = Join-Path $Root "budget_tracker\__init__.py"
 Write-Host "Fetching tags from origin..." -ForegroundColor Cyan
 git fetch --tags --quiet
 
+# ---------------------------------------------------------------------------
+# Resolve GitHub repo slug from the remote URL
+#   Handles: https://github.com/owner/repo.git
+#            git@github.com:owner/repo.git
+#            git@github-personal:owner/repo.git  (SSH alias)
+# ---------------------------------------------------------------------------
+$RemoteUrl = git remote get-url origin 2>&1
+if ($RemoteUrl -match '[:/]([^/:]+/[^/]+?)(?:\.git)?$') {
+    $RepoSlug = $Matches[1]
+} else {
+    Write-Error "Cannot parse owner/repo from remote URL: $RemoteUrl"
+    exit 1
+}
+
 # ===========================================================================
 # PATH A: -SkipBuild
-#   Find the newest installer in dist\, derive version from its filename,
-#   tag that version and push -- no version bump, no __init__.py change.
+#   Find the newest installer in dist\, derive version from its filename.
 # ===========================================================================
 if ($SkipBuild) {
     $exes = Get-ChildItem (Join-Path $Root "dist") "BudgetTracker-*-Setup.exe" -ErrorAction SilentlyContinue |
@@ -145,7 +172,6 @@ if ($remoteCheck -match [regex]::Escape($NewTag)) {
 # Normal path only: update __version__ and build
 # ---------------------------------------------------------------------------
 if (-not $SkipBuild) {
-    # Update __init__.py
     $initContent = Get-Content $InitFile -Raw
     $initContent = $initContent -replace `
         '__version__\s*=\s*["''][^"'']+["'']', `
@@ -153,7 +179,6 @@ if (-not $SkipBuild) {
     [System.IO.File]::WriteAllText($InitFile, $initContent, (New-Object System.Text.UTF8Encoding $false))
     Write-Host "Updated __init__.py -> $NewVersion" -ForegroundColor Green
 
-    # Build
     Write-Host "`nRunning build.ps1..." -ForegroundColor Cyan
     & "$PSScriptRoot\build.ps1"
     if ($LASTEXITCODE -ne 0) {
@@ -171,7 +196,6 @@ if (-not $SkipBuild) {
     $SizeMB = [math]::Round((Get-Item $SetupExe).Length / 1MB, 1)
     Write-Host "Asset:  $(Split-Path -Leaf $SetupExe)  ($SizeMB MB)" -ForegroundColor Green
 
-    # Commit version bump
     Write-Host "`nCommitting version bump..." -ForegroundColor Cyan
     git add (Join-Path "budget_tracker" "__init__.py")
     git commit -m "chore: bump version to $NewVersion"
@@ -190,5 +214,58 @@ if ($LASTEXITCODE -ne 0) { Write-Error "git push (commit) failed."; exit 1 }
 git push origin $NewTag
 if ($LASTEXITCODE -ne 0) { Write-Error "git push (tag) failed."; exit 1 }
 
-Write-Host "`nDone. Tag $NewTag is live on origin." -ForegroundColor Green
-Write-Host "Installer: $SetupExe" -ForegroundColor White
+# ---------------------------------------------------------------------------
+# GitHub release via REST API (needs only "repo" scope, not "workflow")
+# ---------------------------------------------------------------------------
+Write-Host "`nCreating GitHub release..." -ForegroundColor Cyan
+
+# Read stored token from gh -- no scope issues, just a local keyring read
+$GhToken = gh auth token 2>&1
+if ($LASTEXITCODE -ne 0 -or -not $GhToken) {
+    Write-Warning "Could not read gh token -- skipping GitHub release creation."
+    Write-Warning "Run 'gh auth login' then re-run with -SkipBuild to publish."
+    exit 0
+}
+
+$ApiBase = "https://api.github.com"
+$Headers = @{
+    Authorization        = "Bearer $GhToken"
+    Accept               = "application/vnd.github+json"
+    "X-GitHub-Api-Version" = "2022-11-28"
+}
+
+# Create the release
+$ReleasePayload = @{
+    tag_name               = $NewTag
+    name                   = "Budget Tracker $NewVersion"
+    draft                  = $Draft.IsPresent
+    prerelease             = $Prerelease.IsPresent
+    generate_release_notes = $true
+} | ConvertTo-Json
+
+$Release = Invoke-RestMethod `
+    -Uri "$ApiBase/repos/$RepoSlug/releases" `
+    -Method POST `
+    -Headers $Headers `
+    -Body $ReleasePayload `
+    -ContentType "application/json"
+
+# Upload the installer exe as a release asset
+$AssetName    = [System.IO.Path]::GetFileName($SetupExe)
+$UploadBase   = $Release.upload_url -replace '\{[^}]+\}', ''
+$AssetBytes   = [System.IO.File]::ReadAllBytes($SetupExe)
+
+Write-Host "Uploading $AssetName..." -ForegroundColor Cyan
+$null = Invoke-RestMethod `
+    -Uri "${UploadBase}?name=$AssetName" `
+    -Method POST `
+    -Headers $Headers `
+    -Body $AssetBytes `
+    -ContentType "application/octet-stream"
+
+Write-Host "`nDone." -ForegroundColor Green
+if ($Draft) {
+    Write-Host "Draft release (finish on GitHub): $($Release.html_url)" -ForegroundColor Yellow
+} else {
+    Write-Host "Published: $($Release.html_url)" -ForegroundColor Cyan
+}
