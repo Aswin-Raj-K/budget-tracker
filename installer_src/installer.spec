@@ -7,8 +7,9 @@
 block_cipher = None
 
 datas = [
-    ("../build/app_bundle.zip",                              "."),
-    ("../build/uninstaller/BudgetTrackerUninstall.exe",      "."),
+    ("../build/app_bundle.zip",                                        "."),
+    ("../build/uninstaller/BudgetTrackerUninstall.exe",                "."),
+    ("../budget_tracker/ui/icons/budget_tracker_icon.ico",             "."),
 ]
 
 a = Analysis(
@@ -42,5 +43,6 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
+    icon="../budget_tracker/ui/icons/budget_tracker_icon.ico",
     disable_windowed_traceback=False,
 )

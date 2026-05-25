@@ -1,0 +1,32 @@
+<svg width="100%" viewBox="0 0 680 680" role="img" xmlns="http://www.w3.org/2000/svg" style="">
+  <title style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">Budget Tracker App Icon</title>
+  <desc style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">Modern budget tracker icon with a colorful donut chart and dollar sign</desc>
+
+  <!-- Background -->
+  <rect x="50" y="50" width="580" height="580" rx="128" fill="#0F1628" style="fill:rgb(15, 22, 40);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+  <rect x="50" y="50" width="580" height="580" rx="128" fill="none" stroke="#ffffff" stroke-width="2" stroke-opacity="0.06" style="fill:none;stroke:rgb(255, 255, 255);color:rgb(255, 255, 255);stroke-width:2px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Segment 1: Green 35% -->
+  <path d="M340,144 A196,196 0 0,1 497.4,456.0 L430.8,410.4 A114,114 0 0,0 340,226 Z" fill="#22C55E" stroke="#0F1628" stroke-width="8" stroke-linejoin="round" style="fill:rgb(34, 197, 94);stroke:rgb(15, 22, 40);color:rgb(255, 255, 255);stroke-width:8px;stroke-linecap:butt;stroke-linejoin:round;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Segment 2: Amber 25% -->
+  <path d="M497.4,456.0 A196,196 0 0,1 224.0,497.4 L272.0,432.8 A114,114 0 0,0 430.8,410.4 Z" fill="#F59E0B" stroke="#0F1628" stroke-width="8" stroke-linejoin="round" style="fill:rgb(245, 158, 11);stroke:rgb(15, 22, 40);color:rgb(255, 255, 255);stroke-width:8px;stroke-linecap:butt;stroke-linejoin:round;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Segment 3: Blue 25% -->
+  <path d="M224.0,497.4 A196,196 0 0,1 182.6,224.0 L249.2,269.6 A114,114 0 0,0 272.0,432.8 Z" fill="#60A5FA" stroke="#0F1628" stroke-width="8" stroke-linejoin="round" style="fill:rgb(96, 165, 250);stroke:rgb(15, 22, 40);color:rgb(255, 255, 255);stroke-width:8px;stroke-linecap:butt;stroke-linejoin:round;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Segment 4: Pink 15% -->
+  <path d="M182.6,224.0 A196,196 0 0,1 340,144 L340,226 A114,114 0 0,0 249.2,269.6 Z" fill="#F472B6" stroke="#0F1628" stroke-width="8" stroke-linejoin="round" style="fill:rgb(244, 114, 182);stroke:rgb(15, 22, 40);color:rgb(255, 255, 255);stroke-width:8px;stroke-linecap:butt;stroke-linejoin:round;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Center hole -->
+  <circle cx="340" cy="340" r="108" fill="#0F1628" style="fill:rgb(15, 22, 40);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+  <circle cx="340" cy="340" r="98" fill="#17213A" style="fill:rgb(23, 33, 58);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Dollar sign -->
+  <text x="340" y="372" font-family="Arial Black, sans-serif" font-size="88" font-weight="900" text-anchor="middle" fill="#FBBF24" style="fill:rgb(251, 191, 36);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Arial Black&quot;, sans-serif;font-size:88px;font-weight:900;text-anchor:middle;dominant-baseline:auto">$</text>
+
+  <!-- Subtle ring highlights -->
+  <circle cx="340" cy="340" r="196" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-opacity="0.08" style="fill:none;stroke:rgb(255, 255, 255);color:rgb(255, 255, 255);stroke-width:1.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+  <circle cx="340" cy="340" r="114" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-opacity="0.08" style="fill:none;stroke:rgb(255, 255, 255);color:rgb(255, 255, 255);stroke-width:1.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+</svg>

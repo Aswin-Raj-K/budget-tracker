@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, QObject, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -423,6 +423,9 @@ class InstallerWizard(QWizard):
         self.setWizardStyle(QWizard.WizardStyle.ModernStyle)
         self.setMinimumSize(600, 440)
         self.setStyleSheet(_STYLE)
+        _ico = install_ops._bundle_root() / "budget_tracker_icon.ico"
+        if _ico.exists():
+            self.setWindowIcon(QIcon(str(_ico)))
         self.setOption(QWizard.WizardOption.NoBackButtonOnLastPage, True)
         self.setOption(QWizard.WizardOption.NoCancelButtonOnLastPage, True)
 

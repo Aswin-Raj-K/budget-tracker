@@ -11,6 +11,7 @@ datas = [
     ("budget_tracker/ui/styles/*.template",    "budget_tracker/ui/styles"),
     ("budget_tracker/ui/styles/themes/*.json", "budget_tracker/ui/styles/themes"),
     ("budget_tracker/ui/icons/*.svg",          "budget_tracker/ui/icons"),
+    ("budget_tracker/ui/icons/*.ico",          "budget_tracker/ui/icons"),
 ]
 
 hiddenimports = [
@@ -95,6 +96,7 @@ exe = EXE(
     strip=False,
     upx=False,   # UPX not installed; set to True if you install it later
     console=False,
+    icon="budget_tracker/ui/icons/budget_tracker_icon.ico",
     disable_windowed_traceback=False,
 )
 

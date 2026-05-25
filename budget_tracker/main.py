@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import sys
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QDialog
 
-from budget_tracker.config import APP_DISPLAY_NAME, ORG_NAME
+from budget_tracker.config import APP_DISPLAY_NAME, ICONS_DIR, ORG_NAME
 from budget_tracker.core.db import init_db
 from budget_tracker.services.db_location_service import cleanup_legacy_db_file
 from budget_tracker.services.seeder import seed_default_categories_if_empty
@@ -18,6 +19,7 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_DISPLAY_NAME)
     app.setOrganizationName(ORG_NAME)
+    app.setWindowIcon(QIcon(str(ICONS_DIR / "budget_tracker_icon.svg")))
 
     # If the user moved the DB last session, the previous file may still
     # be on disk (the move ran while the connection was open and locked

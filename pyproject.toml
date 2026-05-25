@@ -17,6 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "Pillow>=10.0",
 ]
 
 [project.scripts]
@@ -31,6 +32,7 @@ budget_tracker = [
     "ui/styles/*.template",
     "ui/styles/themes/*.json",
     "ui/icons/*.svg",
+    "ui/icons/*.ico",
 ]
 
 [tool.pytest.ini_options]
