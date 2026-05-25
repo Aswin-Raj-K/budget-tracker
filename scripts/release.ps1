@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Build and publish a GitHub release for Budget Tracker.
@@ -45,7 +45,7 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 
 # ---------------------------------------------------------------------------
-# Step 1 — Read version
+# Step 1 - Read version
 # ---------------------------------------------------------------------------
 $InitFile    = Join-Path $Root "budget_tracker\__init__.py"
 $VersionLine = Get-Content $InitFile |
@@ -63,13 +63,10 @@ $Tag = "v$AppVersion"
 Write-Host "Release: Budget Tracker $AppVersion  (tag: $Tag)" -ForegroundColor Cyan
 
 # ---------------------------------------------------------------------------
-# Step 2 — Verify prerequisites
+# Step 2 - Verify prerequisites
 # ---------------------------------------------------------------------------
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
-    Write-Error @"
-GitHub CLI (gh) not found.
-Install it from https://cli.github.com and run 'gh auth login' once.
-"@
+    Write-Error "GitHub CLI (gh) not found. Install from https://cli.github.com and run 'gh auth login' once."
     exit 1
 }
 
@@ -81,7 +78,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ---------------------------------------------------------------------------
-# Step 3 — Guard: no dirty working tree, tag must be new
+# Step 3 - Guard: no dirty working tree, tag must be new
 # ---------------------------------------------------------------------------
 $dirty = git status --porcelain 2>&1
 if ($dirty) {
@@ -93,12 +90,7 @@ if ($dirty) {
 
 $existingTag = git tag -l $Tag
 if ($existingTag) {
-    Write-Error @"
-Tag $Tag already exists locally.
-If you want to re-release the same version, delete the tag first:
-  git tag -d $Tag && git push origin :refs/tags/$Tag
-Or bump __version__ in budget_tracker/__init__.py.
-"@
+    Write-Error ("Tag $Tag already exists locally. Delete it first: git tag -d $Tag && git push origin :refs/tags/$Tag")
     exit 1
 }
 
@@ -110,48 +102,45 @@ if ($remoteTags -match $Tag) {
 }
 
 # ---------------------------------------------------------------------------
-# Step 4 — Build
+# Step 4 - Build
 # ---------------------------------------------------------------------------
 if (-not $SkipBuild) {
-    Write-Host "`nRunning build.ps1…" -ForegroundColor Cyan
+    Write-Host "`nRunning build.ps1..." -ForegroundColor Cyan
     & "$PSScriptRoot\build.ps1"
-    if ($LASTEXITCODE -ne 0) { Write-Error "build.ps1 failed — aborting release."; exit 1 }
+    if ($LASTEXITCODE -ne 0) { Write-Error "build.ps1 failed - aborting release."; exit 1 }
 } else {
     Write-Host "`n[build] Skipped (-SkipBuild)" -ForegroundColor DarkGray
 }
 
 # ---------------------------------------------------------------------------
-# Step 5 — Verify setup exe
+# Step 5 - Verify setup exe
 # ---------------------------------------------------------------------------
 $SetupExe = Join-Path $Root "dist\BudgetTracker-$AppVersion-Setup.exe"
 if (-not (Test-Path $SetupExe)) {
-    Write-Error @"
-Setup exe not found: $SetupExe
-Run build.ps1 first, or omit -SkipBuild.
-"@
+    Write-Error "Setup exe not found: $SetupExe`nRun build.ps1 first, or omit -SkipBuild."
     exit 1
 }
 $SizeMB = [math]::Round((Get-Item $SetupExe).Length / 1MB, 1)
 Write-Host "`nAsset: $(Split-Path -Leaf $SetupExe)  ($SizeMB MB)" -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
-# Step 6 — Create and push the git tag
+# Step 6 - Create and push the git tag
 # ---------------------------------------------------------------------------
-Write-Host "`nTagging commit as $Tag…" -ForegroundColor Cyan
+Write-Host "`nTagging commit as $Tag..." -ForegroundColor Cyan
 git tag -a $Tag -m "Release $AppVersion"
 git push origin $Tag
 if ($LASTEXITCODE -ne 0) {
     # Roll back local tag so the script can be re-run cleanly
     git tag -d $Tag | Out-Null
-    Write-Error "git push tag failed — local tag removed. Fix the push issue and retry."
+    Write-Error "git push tag failed - local tag removed. Fix the push issue and retry."
     exit 1
 }
 Write-Host "      Tag pushed." -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
-# Step 7 — Create GitHub release
+# Step 7 - Create GitHub release
 # ---------------------------------------------------------------------------
-Write-Host "`nCreating GitHub release…" -ForegroundColor Cyan
+Write-Host "`nCreating GitHub release..." -ForegroundColor Cyan
 
 $ghArgs = @(
     "release", "create", $Tag,
@@ -171,7 +160,7 @@ if ($Notes) {
 
 $ReleaseUrl = gh @ghArgs
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "gh release create failed. The tag $Tag was pushed — delete it manually if you need to retry: git push origin :refs/tags/$Tag"
+    Write-Error "gh release create failed. Tag $Tag was pushed - delete it if retrying: git push origin :refs/tags/$Tag"
     exit 1
 }
 
