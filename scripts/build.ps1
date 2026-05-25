@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Build the Budget Tracker Windows installer.
@@ -31,9 +31,9 @@ $BuildDir      = Join-Path $Root "build"
 $DistDir       = Join-Path $Root "dist"
 
 # ---------------------------------------------------------------------------
-# Step 1 — Read version
+# Step 1 - Read version
 # ---------------------------------------------------------------------------
-$InitFile   = Join-Path $Root "budget_tracker\__init__.py"
+$InitFile    = Join-Path $Root "budget_tracker\__init__.py"
 $VersionLine = Get-Content $InitFile | Where-Object { $_ -match '__version__' } | Select-Object -First 1
 if ($VersionLine -match '"([^"]+)"' -or $VersionLine -match "'([^']+)'") {
     $AppVersion = $Matches[1]
@@ -44,10 +44,10 @@ if ($VersionLine -match '"([^"]+)"' -or $VersionLine -match "'([^']+)'") {
 Write-Host "Building Budget Tracker $AppVersion" -ForegroundColor Cyan
 
 # ---------------------------------------------------------------------------
-# Step 2 — Bundle the app with PyInstaller
+# Step 2 - Bundle the app with PyInstaller
 # ---------------------------------------------------------------------------
 if (-not $SkipApp) {
-    Write-Host "`n[2/6] Bundling app with PyInstaller…" -ForegroundColor Cyan
+    Write-Host "`n[2/6] Bundling app with PyInstaller..." -ForegroundColor Cyan
     Push-Location $Root
     pyinstaller budget_tracker.spec --clean --noconfirm
     if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "PyInstaller (app) failed"; exit 1 }
@@ -58,13 +58,13 @@ if (-not $SkipApp) {
 }
 
 # ---------------------------------------------------------------------------
-# Step 3 — Zip the app bundle
+# Step 3 - Zip the app bundle
 # ---------------------------------------------------------------------------
 if (-not $SkipApp) {
-    Write-Host "`n[3/6] Zipping app bundle…" -ForegroundColor Cyan
+    Write-Host "`n[3/6] Zipping app bundle..." -ForegroundColor Cyan
     New-Item -ItemType Directory -Force $BuildDir | Out-Null
     $AppBundleZip = Join-Path $BuildDir "app_bundle.zip"
-    # Use Python's zipfile instead of Compress-Archive — Python opens files
+    # Use Python's zipfile instead of Compress-Archive -- Python opens files
     # with shared read access so it handles locked files (base_library.zip,
     # AV scans) that Compress-Archive chokes on.
     python -c @"
@@ -87,15 +87,15 @@ print(f'Zipped {dst.stat().st_size // 1024 // 1024} MB')
 
 if (-not $SkipInstaller) {
     # -------------------------------------------------------------------------
-    # Step 4 — Build the uninstaller
+    # Step 4 - Build the uninstaller
     # -------------------------------------------------------------------------
-    Write-Host "`n[4/6] Building uninstaller…" -ForegroundColor Cyan
+    Write-Host "`n[4/6] Building uninstaller..." -ForegroundColor Cyan
     Push-Location $InstallerSrc
     pyinstaller uninstaller.spec --clean --noconfirm
     if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "PyInstaller (uninstaller) failed"; exit 1 }
     Pop-Location
 
-    $UninstallerDestDir  = Join-Path $BuildDir "uninstaller"
+    $UninstallerDestDir = Join-Path $BuildDir "uninstaller"
     New-Item -ItemType Directory -Force $UninstallerDestDir | Out-Null
     $UninstallerSrc  = Join-Path $InstallerSrc "dist\BudgetTrackerUninstall.exe"
     $UninstallerDest = Join-Path $UninstallerDestDir "BudgetTrackerUninstall.exe"
@@ -104,17 +104,17 @@ if (-not $SkipInstaller) {
     Write-Host "      => build\uninstaller\BudgetTrackerUninstall.exe" -ForegroundColor Green
 
     # -------------------------------------------------------------------------
-    # Step 5 — Write _installer_version.py (read by the wizard at runtime)
+    # Step 5 - Write _installer_version.py (read by the wizard at runtime)
     # -------------------------------------------------------------------------
-    Write-Host "`n[5/6] Writing installer version module…" -ForegroundColor Cyan
+    Write-Host "`n[5/6] Writing installer version module..." -ForegroundColor Cyan
     $VersionModule = Join-Path $InstallerSrc "_installer_version.py"
     "APP_VERSION = `"$AppVersion`"" | Out-File -FilePath $VersionModule -Encoding utf8 -NoNewline
     Write-Host "      => installer_src\_installer_version.py" -ForegroundColor Green
 
     # -------------------------------------------------------------------------
-    # Step 6 — Build the installer
+    # Step 6 - Build the installer
     # -------------------------------------------------------------------------
-    Write-Host "`n[6/6] Building installer…" -ForegroundColor Cyan
+    Write-Host "`n[6/6] Building installer..." -ForegroundColor Cyan
     Push-Location $InstallerSrc
     pyinstaller installer.spec --clean --noconfirm
     if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "PyInstaller (installer) failed"; exit 1 }
